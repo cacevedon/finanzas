@@ -58,7 +58,7 @@ modulo = st.sidebar.radio(
         "5. Gradientes Financieros",
         "6. Presupuesto y Flujo de Caja",
         "7. Evaluación de Proyectos (VAN/TIR)",
-        "8. Banco de Preguntas Solemnes"
+        "8. Calculadoras Especializadas"
     ]
 )
 
@@ -383,8 +383,8 @@ elif modulo == "7. Evaluación de Proyectos (VAN/TIR)":
 # ==========================================
 # MÓDULO 8: SOLEMNES Y EXÁMENES
 # ==========================================
-elif modulo == "8. Banco de Preguntas Solemnes":
-    st.header("Unidad 8: Solucionario de Solemnes y Exámenes (Imágenes WhatsApp)")
+elif modulo == "8. Calculadoras Especializadas":
+    st.header("Módulo 8: Calculadoras Especializadas")
     
     preg = st.selectbox("Selecciona la Pregunta a Revisar:", [
         "Pregunta 1: Valor Futuro USD 1.000 a 16 meses al 5% anual",
