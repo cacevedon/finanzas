@@ -1,2 +1,2 @@
 # finanzas
-Sistema de cálculos financieros básicos
+Fundamentos y sistemas de cálculos financieros básicos
