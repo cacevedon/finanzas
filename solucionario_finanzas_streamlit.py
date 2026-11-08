@@ -127,7 +127,7 @@ def smart_num_input(label, default_val, key, help_text=None):
     val_str = st.session_state.get(key, "")
     return parse_num(val_str, default_val)
 
-# Helper para exportación segura a Excel (.xlsx) o CSV (.csv) con soporte multiversión
+# Helper para exportación segura a Excel (.xlsx) o CSV (.csv)
 def export_dataframe_button(df, filename_prefix="tabla_desarrollo"):
     try:
         output = io.BytesIO()
@@ -136,7 +136,7 @@ def export_dataframe_button(df, filename_prefix="tabla_desarrollo"):
         excel_data = output.getvalue()
         
         st.download_button(
-            label="📥 Exportar Tabla de Desarrollo a Excel (.xlsx)",
+            label="📥 Exportar Tabla a Excel (.xlsx)",
             data=excel_data,
             file_name=f"{filename_prefix}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -144,7 +144,7 @@ def export_dataframe_button(df, filename_prefix="tabla_desarrollo"):
     except Exception:
         csv_data = df.to_csv(index=False, sep=";", decimal=",").encode('utf-8-sig')
         st.download_button(
-            label="📥 Exportar Tabla de Desarrollo a CSV (Compatible con Excel)",
+            label="📥 Exportar Tabla a Excel (CSV)",
             data=csv_data,
             file_name=f"{filename_prefix}.csv",
             mime="text/csv"
@@ -338,6 +338,8 @@ elif modulo == "3. Conversión de Tasas (TNA/TEA)":
         
         if tea_x > tea_y:
             st.success(f"✅ **Para Inversión/Ahorro:** Conviene **Banco X** ({fmt_n(tea_x*100, 2)}% TEA).\n\n✅ **Para Crédito:** Conviene **Banco Y** (9,20% TEA).")
+        else:
+            st.success(f"✅ **Para Inversión/Ahorro:** Conviene **Banco Y** (9,20% TEA).\n\n✅ **Para Crédito:** Conviene **Banco X** ({fmt_n(tea_x*100, 2)}% TEA).")
 
 # ==========================================
 # MÓDULO 4: ANUALIDADES
@@ -369,7 +371,7 @@ elif modulo == "4. Anualidades y Amortización":
         capital_mes = cuota_fija - interes_mes
         saldo_final = max(0.0, saldo - capital_mes)
         amort_data.append({
-            "Cuota #": mes,
+            "Mes": mes,
             "Saldo Inicial ($)": fmt_m(saldo),
             "Cuota ($)": fmt_m(cuota_fija),
             "Interés ($)": fmt_m(interes_mes),
@@ -383,11 +385,11 @@ elif modulo == "4. Anualidades y Amortización":
     df_amort = pd.DataFrame(amort_data)
     
     st.markdown("#### Tabla de Amortización Dinámica")
-    st.dataframe(df_amort.drop(columns=["Raw_Interes", "Raw_Amort"]), hide_index=True, height=280)
-    export_dataframe_button(df_amort.drop(columns=["Raw_Interes", "Raw_Amort"]), filename_prefix="tabla_amortizacion_m4")
+    st.dataframe(df_amort.drop(columns=["Raw_Interes", "Raw_Amort"]), height=280, hide_index=True)
+    export_dataframe_button(df_amort.drop(columns=["Raw_Interes", "Raw_Amort"]), filename_prefix="tabla_amortizacion_modulo4")
     
     chart_df = pd.DataFrame({
-        "Mes": [d["Cuota #"] for d in amort_data],
+        "Mes": [d["Mes"] for d in amort_data],
         "Interés ($)": [d["Raw_Interes"] for d in amort_data],
         "Amortización ($)": [d["Raw_Amort"] for d in amort_data]
     }).set_index("Mes")
@@ -481,7 +483,6 @@ elif modulo == "6. Presupuesto y Flujo de Caja":
         
     df_pres = pd.DataFrame(p_data)
     
-    # Asegurar orden estrictamente cronológico en el gráfico
     df_pres["Mes"] = pd.Categorical(
         df_pres["Mes"], 
         categories=[f"Mes {i}" for i in range(1, meses_p + 1)], 
@@ -489,7 +490,7 @@ elif modulo == "6. Presupuesto y Flujo de Caja":
     )
     
     st.dataframe(df_pres.drop(columns=["Raw_Ventas", "Raw_Egresos"]), hide_index=True)
-    export_dataframe_button(df_pres.drop(columns=["Raw_Ventas", "Raw_Egresos"]), filename_prefix="presupuesto_m6")
+    export_dataframe_button(df_pres.drop(columns=["Raw_Ventas", "Raw_Egresos"]), filename_prefix="presupuesto_mensual_modulo6")
     
     chart_pres = pd.DataFrame({
         "Mes": df_pres["Mes"],
@@ -563,15 +564,15 @@ elif modulo == "8. Calculadoras Especializadas":
             "I. Desglose de Interés y Amortización para una Cuota Específica (k) con Convertidor de Tasas Incorporado",
             "II. Valor Futuro con Interés Compuesto (Plazos Enteros y Fraccionados)",
             "III. Valor Futuro de Anualidades y Fondos de Ahorro (Ordinarias y Anticipadas)",
-            "IV. Valuación de Flujos Múltiples e Irregulares (VP y VF)",
+            "IV. Valuación de Flujos Múltiples e Irregulares (VP en t=0 y VF en t=N)",
             "V. Despeje de Plazo Requerido (n) y Tasa Implícita para Metas de Capital",
             "VI. Conversión Avanzada de Tasas Nominales/Efectivas y Spread Financiero",
             "VII. Valor Presente (VP) de Pagos Futuros Específicos Discretos en Meses",
             "VIII. Valor Futuro (VF) de Depósitos Proyectados Discretos en Meses Específicos (Tasas Variables)",
-            "IX. Comparador de Ofertas Bancarias a Plazo Fijo / Depósitos (TEA vs TEC / Intereses Ganados)",
+            "IX. Comparador de Ofertas Bancarias a Plazo Fijo / Depósitos (Múltiples Bancos y Tipos de Tasa)",
             "X. Crédito Comercial / Bienes de Capital (Pagos Anuales & Cuota Mensual)",
             "XI. Tasa Implícita Anual para Créditos o Inversiones de Pago Único",
-            "XII. Valor Presente de Cero / Descuento con Alta Precisión Decimal (4 Decimales)"
+            "XII. Valor Presente de Cero / Descuento (4 Decimales de Precisión)"
         ]
     )
     
@@ -670,10 +671,10 @@ elif modulo == "8. Calculadoras Especializadas":
         m3.metric("Amortización Cuota k", f"${fmt_m(k_amort)}")
         m4.metric("Saldo Insoluto Final", f"${fmt_m(k_saldo_final)}")
         
-        df_amort_k = pd.DataFrame(amort_full)
         with st.expander("Ver Tabla Completa de Amortización de Deuda"):
-            st.dataframe(df_amort_k, hide_index=True)
-            export_dataframe_button(df_amort_k, filename_prefix=f"amortizacion_cuota_k_{k_eval}")
+            df_k_table = pd.DataFrame(amort_full)
+            st.dataframe(df_k_table, hide_index=True)
+            export_dataframe_button(df_k_table, filename_prefix=f"amortizacion_cuota_k_{k_eval}")
 
     # -------------------------------------------------------------
     # HERRAMIENTA II
@@ -700,7 +701,7 @@ elif modulo == "8. Calculadoras Especializadas":
     # HERRAMIENTA III
     # -------------------------------------------------------------
     elif calc_option.startswith("III. "):
-        st.subheader("🛠️ III. Valor Futuro de Anualidades y Fondos de Ahorro (Ordinarias y Anticipadas)")
+        st.subheader("🛠️ III. Valor Futuro de Anualidades y Fondos de Ahorro")
         
         af1, af2, af3, af4 = st.columns(4)
         with af1:
@@ -733,7 +734,7 @@ elif modulo == "8. Calculadoras Especializadas":
     # HERRAMIENTA IV
     # -------------------------------------------------------------
     elif calc_option.startswith("IV. "):
-        st.subheader("🛠️ IV. Valuación de Flujos Múltiples e Irregulares (VP y VF)")
+        st.subheader("🛠️ IV. Valuación de Flujos Múltiples e Irregulares")
         
         mf1, mf2 = st.columns(2)
         with mf1:
@@ -765,7 +766,7 @@ elif modulo == "8. Calculadoras Especializadas":
     # HERRAMIENTA V
     # -------------------------------------------------------------
     elif calc_option.startswith("V. "):
-        st.subheader("🛠️ V. Despeje de Plazo Requerido (n) y Tasa Implícita para Metas de Capital")
+        st.subheader("🛠️ V. Despeje de Plazo Requerido (n) para Metas de Capital")
         
         s2f1, s2f2, s2f3 = st.columns(3)
         with s2f1:
@@ -789,7 +790,7 @@ elif modulo == "8. Calculadoras Especializadas":
     # HERRAMIENTA VI
     # -------------------------------------------------------------
     elif calc_option.startswith("VI. "):
-        st.subheader("🛠️ VI. Conversión Avanzada de Tasas Nominales/Efectivas y Spread Financiero")
+        st.subheader("🛠️ VI. Conversión Avanzada de Tasas y Spread Financiero")
         
         cv1, cv2 = st.columns(2)
         with cv1:
@@ -813,305 +814,401 @@ elif modulo == "8. Calculadoras Especializadas":
     # -------------------------------------------------------------
     elif calc_option.startswith("VII. "):
         st.subheader("🛠️ VII. Valor Presente (VP) de Pagos Futuros Específicos Discretos en Meses")
-        st.caption("Calcula el monto inicial único que se debe ahorrar/disponer hoy a una tasa dada para cubrir egresos específicos en meses futuros.")
+        st.caption("Calcula el fondo inicial (herencia o reserva) requerido hoy en t=0 para cubrir exactamente compromisos de pago en meses futuros específicos.")
         
-        u1, u2 = st.columns(2)
-        with u1:
-            tasa_mensual_u = smart_num_input("Tasa de Interés Mensual (%):", 2.50, key="calc7_tasa") / 100.0
-            st.markdown(f'<div class="val-badge">📈 Tasa Mensual: {fmt_n(tasa_mensual_u*100, 2)}%</div>', unsafe_allow_html=True)
-        with u2:
-            num_pagos_u = int(smart_num_input("Cantidad de Pagos Futuros a Programar:", 3.0, key="calc7_num"))
+        col_u1, col_u2 = st.columns(2)
+        with col_u1:
+            tasa_univ = smart_num_input("Tasa de Rentabilidad / Descuento Mensual (%):", 2.50, key="calc7_tasa") / 100.0
+            st.markdown(f'<div class="val-badge">📈 Tasa Mensual: {fmt_n(tasa_univ*100, 2)}%</div>', unsafe_allow_html=True)
+        with col_u2:
+            num_pagos_u = int(smart_num_input("Cantidad de Cuotas / Pagos a Financiar:", 3.0, key="calc7_num"))
             if num_pagos_u < 1: num_pagos_u = 1
             if num_pagos_u > 10: num_pagos_u = 10
-            
-        st.write("Ingresa el mes específico y el monto de cada pago:")
-        pagos_univ = []
-        cols_u = st.columns(min(int(num_pagos_u), 3))
+
+        st.write("Ingresa el mes de vencimiento y el monto de cada compromiso futuro:")
+        pagos_univ_inputs = []
+        u_cols = st.columns(min(int(num_pagos_u), 4))
         
-        default_meses_u = [1, 3, 4, 6, 8, 10, 12, 15, 18, 24]
-        default_montos_u = [5000000.0, 7000000.0, 12000000.0, 10000000.0, 5000000.0, 5000000.0, 5000000.0, 5000000.0, 5000000.0, 5000000.0]
+        defaults_m = [1, 3, 4, 6, 8, 10, 12]
+        defaults_v = [5000000.0, 7000000.0, 12000000.0, 10000000.0]
         
         for idx in range(int(num_pagos_u)):
-            col_target = cols_u[idx % 3]
+            col_target = u_cols[idx % 4]
             with col_target:
-                mes_pago = int(smart_num_input(f"Mes Pago #{idx+1}:", default_meses_u[idx if idx < len(default_meses_u) else 0], key=f"calc7_mes_{idx}"))
-                monto_pago = smart_num_input(f"Monto Pago #{idx+1} ($):", default_montos_u[idx if idx < len(default_montos_u) else 0], key=f"calc7_monto_{idx}")
-                st.markdown(f'<div class="val-badge">Mes {mes_pago}: ${fmt_m(monto_pago)}</div>', unsafe_allow_html=True)
-                pagos_univ.append((mes_pago, monto_pago))
-                
-        vp_total_u = sum([p[1] / ((1 + tasa_mensual_u)**(p[0])) for p in pagos_univ])
+                mes_pago = int(smart_num_input(f"Mes Vencimiento Pago {idx+1}:", defaults_m[idx] if idx < len(defaults_m) else (idx+1), key=f"calc7_mes_{idx}"))
+                monto_pago = smart_num_input(f"Monto Pago {idx+1} ($):", defaults_v[idx] if idx < len(defaults_v) else 5000000.0, key=f"calc7_val_{idx}")
+                pagos_univ_inputs.append({"Pago #": idx+1, "Mes": mes_pago, "Monto ($)": monto_pago})
+
+        vp_total_u = sum([p["Monto ($)"] / ((1 + tasa_univ) ** p["Mes"]) for p in pagos_univ_inputs])
         
-        st.markdown("### 🎯 Fondo de Reserva Total Requerido Hoy (VP):")
-        st.metric("Valor Presente Necesario (t=0)", f"${fmt_m(vp_total_u)}")
+        st.markdown("### 🎯 Resultado de Fondo Requerido Hoy (VP):")
         st.success(f"✅ Debe disponer u ahorrar hoy **${fmt_m(vp_total_u)}** para cubrir exactamente todos los pagos programados.")
+        
+        tabla_u = []
+        for p in pagos_univ_inputs:
+            vp_ind = p["Monto ($)"] / ((1 + tasa_univ) ** p["Mes"])
+            tabla_u.append({
+                "Compromiso #": p["Pago #"],
+                "Mes de Pago": f"Mes {p['Mes']}",
+                "Monto Requerido ($)": fmt_m(p["Monto ($)"]),
+                "Valor Presente Hoy ($)": fmt_m(vp_ind),
+                "% del Fondo Total": f"{fmt_n((vp_ind/vp_total_u)*100, 2)}%"
+            })
+            
+        df_u = pd.DataFrame(tabla_u)
+        st.dataframe(df_u, hide_index=True)
+        export_dataframe_button(df_u, filename_prefix="valor_presente_pagos_discretos")
 
     # -------------------------------------------------------------
-    # HERRAMIENTA VIII: VF DE DEPÓSITOS DISCRETOS (CORREGIDA + TIPO ABONO)
+    # HERRAMIENTA VIII
     # -------------------------------------------------------------
     elif calc_option.startswith("VIII. "):
         st.subheader("🛠️ VIII. Valor Futuro (VF) de Depósitos Proyectados Discretos en Meses Específicos (Tasas Variables)")
-        st.caption("Calcula el capital total acumulado al horizonte final N derivado de abonos en meses específicos, permitiendo tasas variables y mostrando el VF individual de cada depósito.")
+        st.caption("Proyecta el saldo acumulado de ahorros ingresados en meses específicos, con opción de tasas fijas, tramos o tasas independientes por mes.")
         
         v1, v2, v3 = st.columns(3)
         with v1:
-            horizon_n = int(smart_num_input("Horizonte Total de Inversión (Meses N):", 12.0, key="calc8_n"))
-            if horizon_n < 1: horizon_n = 1
-            st.markdown(f'<div class="val-badge">⏳ Horizonte N: {horizon_n} meses</div>', unsafe_allow_html=True)
+            horizonte_m = int(smart_num_input("Horizonte Total de Inversión (Meses):", 12.0, key="calc8_horizonte"))
+            st.markdown(f'<div class="val-badge">⏳ Plazo: {horizonte_m} meses</div>', unsafe_allow_html=True)
         with v2:
             num_deps = int(smart_num_input("Cantidad de Depósitos a Realizar:", 4.0, key="calc8_num_deps"))
             if num_deps < 1: num_deps = 1
             if num_deps > 12: num_deps = 12
-            st.markdown(f'<div class="val-badge">💰 Total Abonos: {num_deps}</div>', unsafe_allow_html=True)
         with v3:
-            tipo_momento_dep = st.selectbox(
-                "Momento en que se Realiza el Depósito en el Mes:",
-                ["Fin del Mes / Vencido (por defecto)", "Inicio del Mes / Anticipado"],
-                key="tipo_momento_dep",
-                help="Vencido: Un depósito en el Mes 1 se realiza al final del Mes 1 y capitaliza N - 1 meses. Anticipado: Capitaliza N - 1 + 1 = N meses."
-            )
-            is_anticipado = ("Anticipado" in tipo_momento_dep)
+            tipo_dep_momento = st.selectbox("Momento del Depósito en el Mes:", ["Fin del Mes / Vencido (por defecto)", "Inicio del Mes / Anticipado"], key="calc8_momento")
 
-        st.markdown("#### 📈 Configuración de Tasas de Interés:")
-        modo_tasa = st.radio(
+        st.markdown("#### 📈 Configuración de Esquema de Tasas de Interés:")
+        esquema_tasa = st.radio(
             "Selecciona la Modalidad de Tasas:",
-            ["Tasa Fija Mensual", "Cambio de Tasa desde un Mes Específico", "Matriz / Tabla de Tasa por Mes"],
-            key="modo_tasa_v8"
+            ["Tasa Fija Única", "Cambio de Tasa desde un Mes Específico", "Matriz / Tabla de Tasa Independiente por Mes"],
+            key="calc8_esquema_tasa"
         )
         
-        tasas_mes = [0.03] * horizon_n
-        
-        if modo_tasa == "Tasa Fija Mensual":
-            t_fija = smart_num_input("Tasa de Interés Mensual (%):", 3.0, key="calc8_tfija") / 100.0
-            tasas_mes = [t_fija] * horizon_n
-        elif modo_tasa == "Cambio de Tasa desde un Mes Específico":
-            ct1, ct2, ct3 = st.columns(3)
-            with ct1:
-                t_ini = smart_num_input("Tasa Inicial Mensual (%):", 3.0, key="calc8_tini") / 100.0
-            with ct2:
-                mes_cambio = int(smart_num_input("Mes en que Cambia la Tasa:", 6.0, key="calc8_mcambio"))
-                if mes_cambio < 1: mes_cambio = 1
-                if mes_cambio > horizon_n: mes_cambio = horizon_n
-            with ct3:
-                t_nueva = smart_num_input("Nueva Tasa Mensual (%):", 3.5, key="calc8_tnueva") / 100.0
+        tasas_mes_dict = {}
+        if esquema_tasa == "Tasa Fija Única":
+            t_fija = smart_num_input("Tasa de Interés Mensual (%):", 3.00, key="calc8_tfija") / 100.0
+            for m in range(1, horizonte_m + 1):
+                tasas_mes_dict[m] = t_fija
+        elif esquema_tasa == "Cambio de Tasa desde un Mes Específico":
+            c_t1, c_t2, c_t3 = st.columns(3)
+            with c_t1:
+                t_ini = smart_num_input("Tasa Inicial (% Mensual):", 3.00, key="calc8_tini") / 100.0
+            with c_t2:
+                mes_cambio = int(smart_num_input("Mes de Cambio de Tasa:", 7.0, key="calc8_mcambio"))
+            with c_t3:
+                t_nueva = smart_num_input("Nueva Tasa (% Mensual):", 4.00, key="calc8_tnueva") / 100.0
                 
-            for m in range(1, horizon_n + 1):
-                if m < mes_cambio:
-                    tasas_mes[m-1] = t_ini
-                else:
-                    tasas_mes[m-1] = t_nueva
+            for m in range(1, horizonte_m + 1):
+                tasas_mes_dict[m] = t_ini if m < mes_cambio else t_nueva
         else:
-            st.write("Ingresa la tasa efectiva para cada mes:")
-            t_cols = st.columns(min(horizon_n, 4))
-            for m in range(1, horizon_n + 1):
-                c_target = t_cols[(m-1) % 4]
-                with c_target:
-                    t_m_val = smart_num_input(f"Tasa Mes {m} (%):", 3.0, key=f"calc8_tm_{m}") / 100.0
-                    tasas_mes[m-1] = t_m_val
+            st.write("Ingresa la tasa mensual (%) para cada mes del período:")
+            t_cols = st.columns(min(horizonte_m, 6))
+            for m in range(1, horizonte_m + 1):
+                col_t = t_cols[(m - 1) % 6]
+                with col_t:
+                    t_m_val = smart_num_input(f"Tasa Mes {m} (%):", 3.0 if m <= 6 else 4.0, key=f"calc8_tmes_{m}") / 100.0
+                    tasas_mes_dict[m] = t_m_val
 
-        st.markdown("#### 💵 Configuración de Depósitos Discretos:")
-        default_m_deps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-        default_v_deps = [30000000.0, 40000000.0, 50000000.0, 50000000.0, 10000000.0, 10000000.0, 10000000.0, 10000000.0, 10000000.0, 10000000.0, 10000000.0, 10000000.0]
-        
+        st.markdown("#### 💵 Ingreso de Depósitos en Meses Específicos:")
         deps_list = []
-        d_cols = st.columns(min(num_deps, 4))
-        for idx in range(num_deps):
-            c_target = d_cols[idx % 4]
-            with c_target:
-                m_dep = int(smart_num_input(f"Mes Depósito #{idx+1}:", default_m_deps[idx if idx < len(default_m_deps) else 0], key=f"calc8_mdep_{idx}"))
-                if m_dep < 1: m_dep = 1
-                if m_dep > horizon_n: m_dep = horizon_n
-                v_dep = smart_num_input(f"Monto Depósito #{idx+1} ($):", default_v_deps[idx if idx < len(default_v_deps) else 0], key=f"calc8_vdep_{idx}")
-                st.markdown(f'<div class="val-badge">Mes {m_dep}: ${fmt_m(v_dep)}</div>', unsafe_allow_html=True)
-                deps_list.append((m_dep, v_dep))
-
-        # Cálculo exacto de meses capitalizados y factor de capitalización individual
-        indiv_results = []
-        vf_total_acum = 0.0
+        d_cols = st.columns(min(int(num_deps), 4))
         
-        for idx, (m_dep, v_dep) in enumerate(deps_list):
-            if is_anticipado:
-                meses_cap = horizon_n - m_dep + 1
-                start_month_idx = m_dep - 1
-            else:
-                meses_cap = horizon_n - m_dep
-                start_month_idx = m_dep
-                
-            factor_cap = 1.0
-            for m_idx in range(start_month_idx, horizon_n):
-                factor_cap *= (1.0 + tasas_mes[m_idx])
-                
-            vf_indiv = v_dep * factor_cap
-            vf_total_acum += vf_indiv
-            
-            tasa_efectiva_indiv = (factor_cap - 1.0) * 100.0
-            
-            indiv_results.append({
-                "Depósito #": idx + 1,
-                "Mes de Depósito": f"Mes {m_dep}",
-                "Monto Depositado ($)": fmt_m(v_dep),
-                "Meses Capitalizados": meses_cap,
-                "Tasa Acumulada Efectiva (%)": f"{fmt_n(tasa_efectiva_indiv, 2)}%",
-                "Valor Futuro del Depósito ($)": fmt_m(vf_indiv),
-                "Raw_VF": vf_indiv,
-                "Raw_Dep": v_dep
-            })
+        def_m_dep = [1, 2, 3, 4, 8, 10]
+        def_v_dep = [30000000.0, 40000000.0, 50000000.0, 50000000.0, 40000000.0]
+        
+        for idx in range(int(num_deps)):
+            col_target = d_cols[idx % 4]
+            with col_target:
+                mes_d = int(smart_num_input(f"Mes Depósito {idx+1}:", def_m_dep[idx] if idx < len(def_m_dep) else (idx+1), key=f"calc8_m_dep_{idx}"))
+                val_d = smart_num_input(f"Monto Depósito {idx+1} ($):", def_v_dep[idx] if idx < len(def_v_dep) else 10000000.0, key=f"calc8_v_dep_{idx}")
+                deps_list.append({"Depósito #": idx+1, "Mes": mes_d, "Monto ($)": val_d})
 
-        for row in indiv_results:
-            row["Participación en VF Final (%)"] = f"{fmt_n((row['Raw_VF'] / vf_total_acum)*100.0, 2)}%" if vf_total_acum > 0 else "0,00%"
+        is_anticipado = "Anticipado" in tipo_dep_momento
+        
+        # 1. Simulación Mes a Mes
+        saldo_curr = 0.0
+        tot_depositado = sum([d["Monto ($)"] for d in deps_list])
+        sim_rows = []
+        
+        for m in range(1, horizonte_m + 1):
+            s_inicial = saldo_curr
+            t_aplicada = tasas_mes_dict[m]
+            
+            dep_m = sum([d["Monto ($)"] for d in deps_list if d["Mes"] == m])
+            
+            if is_anticipado:
+                interes_m = (s_inicial + dep_m) * t_aplicada
+                s_final = s_inicial + dep_m + interes_m
+            else:
+                interes_m = s_inicial * t_aplicada
+                s_final = s_inicial + interes_m + dep_m
+                
+            sim_rows.append({
+                "Mes": f"Mes {m}",
+                "Saldo Inicial ($)": fmt_m(s_inicial),
+                "Depósito Ingresado ($)": fmt_m(dep_m),
+                "Tasa Aplicada (%)": f"{fmt_n(t_aplicada*100, 2)}%",
+                "Interés Ganado ($)": fmt_m(interes_m),
+                "Saldo Final ($)": fmt_m(s_final),
+                "Raw_Sfin": s_final
+            })
+            saldo_curr = s_final
+            
+        vf_acum_total = saldo_curr
+        tot_intereses = vf_acum_total - tot_depositado
+
+        # 2. Desglose de Valor Futuro de Cada Depósito
+        indiv_rows = []
+        for d in deps_list:
+            m_ingreso = d["Mes"]
+            monto_d = d["Monto ($)"]
+            
+            if is_anticipado:
+                m_cap = (horizonte_m - m_ingreso + 1)
+                factor_acum = 1.0
+                for step_m in range(m_ingreso, horizonte_m + 1):
+                    factor_acum *= (1.0 + tasas_mes_dict[step_m])
+            else:
+                m_cap = max(0, horizonte_m - m_ingreso)
+                factor_acum = 1.0
+                for step_m in range(m_ingreso + 1, horizonte_m + 1):
+                    factor_acum *= (1.0 + tasas_mes_dict[step_m])
+                    
+            vf_individual = monto_d * factor_acum
+            tasa_efec_acum = (factor_acum - 1.0) * 100.0
+            part_pct = (vf_individual / vf_acum_total) * 100.0 if vf_acum_total > 0 else 0.0
+            
+            indiv_rows.append({
+                "Abono #": d["Depósito #"],
+                "Mes Ingreso": f"Mes {m_ingreso}",
+                "Monto Depositado ($)": fmt_m(monto_d),
+                "Meses Capitalizados": f"{m_cap} meses",
+                "Tasa Acumulada (%)": f"{fmt_n(tasa_efec_acum, 2)}%",
+                "Valor Futuro del Depósito ($)": fmt_m(vf_individual),
+                "Participación en VF (%)": f"{fmt_n(part_pct, 2)}%"
+            })
 
         st.markdown("### 🎯 Resultados Consolidados:")
-        rc1, rc2 = st.columns(2)
-        rc1.metric(f"Valor Futuro Total Acumulado (t={horizon_n})", f"${fmt_m(vf_total_acum)}")
-        total_depositado = sum([d[1] for d in deps_list])
-        rc2.metric("Total Intereses Ganados", f"${fmt_m(vf_total_acum - total_depositado)}")
+        res_col1, res_col2, res_col3 = st.columns(3)
+        res_col1.metric("Valor Futuro Total Acumulado (t=12)", f"${fmt_m(vf_acum_total)}")
+        res_col2.metric("Total Depósitos Aportados", f"${fmt_m(tot_depositado)}")
+        res_col3.metric("Total Intereses Ganados", f"${fmt_m(tot_intereses)}")
 
-        st.markdown("#### 📋 1. Valor Futuro Individual de Cada Depósito:")
-        df_indiv = pd.DataFrame(indiv_results)
-        st.dataframe(df_indiv.drop(columns=["Raw_VF", "Raw_Dep"]), hide_index=True)
-        export_dataframe_button(df_indiv.drop(columns=["Raw_VF", "Raw_Dep"]), filename_prefix="vf_individual_depositos")
+        st.markdown("#### 💵 1. Desglose del Valor Futuro Individual de Cada Depósito:")
+        df_indiv = pd.DataFrame(indiv_rows)
+        st.dataframe(df_indiv, hide_index=True)
+        export_dataframe_button(df_indiv, filename_prefix="valor_futuro_individual_depositos")
 
-        st.markdown("#### 📊 2. Evolución Mensual del Fondo de Ahorro:")
-        caja_m = 0.0
-        evo_data = []
-        
-        dep_dict = {}
-        for m_dep, v_dep in deps_list:
-            dep_dict[m_dep] = dep_dict.get(m_dep, 0.0) + v_dep
-            
-        for m in range(1, horizon_n + 1):
-            s_ini = caja_m
-            dep_m = dep_dict.get(m, 0.0)
-            t_m = tasas_mes[m - 1]
-            
-            if is_anticipado:
-                int_m = (s_ini + dep_m) * t_m
-                s_fin = s_ini + dep_m + int_m
-            else:
-                int_m = s_ini * t_m
-                s_fin = s_ini + int_m + dep_m
-                
-            caja_m = s_fin
-            
-            evo_data.append({
-                "Mes": f"Mes {m}",
-                "Saldo Inicial ($)": fmt_m(s_ini),
-                "Depósito ($)": fmt_m(dep_m),
-                "Tasa del Mes (%)": f"{fmt_n(t_m*100, 2)}%",
-                "Interés del Mes ($)": fmt_m(int_m),
-                "Saldo Final ($)": fmt_m(s_fin)
-            })
-            
-        df_evo = pd.DataFrame(evo_data)
-        st.dataframe(df_evo, hide_index=True)
-        export_dataframe_button(df_evo, filename_prefix="evolucion_mensual_fondo")
+        st.markdown("#### 📅 2. Evolución Mensual del Fondo de Ahorro:")
+        df_sim = pd.DataFrame(sim_rows)
+        st.dataframe(df_sim.drop(columns=["Raw_Sfin"]), hide_index=True)
+        export_dataframe_button(df_sim.drop(columns=["Raw_Sfin"]), filename_prefix="evolucion_mensual_fondo")
 
     # -------------------------------------------------------------
     # HERRAMIENTA IX
     # -------------------------------------------------------------
     elif calc_option.startswith("IX. "):
-        st.subheader("🛠️ IX. Comparador de Ofertas Bancarias a Plazo Fijo / Depósitos")
+        st.subheader("🛠️ IX. Comparador de Ofertas Bancarias a Plazo Fijo / Depósitos (Múltiples Bancos y Tipos de Tasa)")
+        st.caption("Compara múltiples bancos simultáneamente ingresando el monto inicial, el plazo y el tipo de tasa específica ofrecida por cada entidad.")
         
-        b1, b2, b3 = st.columns(3)
-        with b1:
-            monto_inv_b = smart_num_input("Monto Inicial a Invertir ($):", 17000000.0, key="calc9_monto")
-            st.markdown(f'<div class="val-badge">💵 Inversión: ${fmt_m(monto_inv_b)}</div>', unsafe_allow_html=True)
-        with b2:
-            plazo_b_meses = smart_num_input("Plazo Total en Meses:", 24.0, key="calc9_plazo")
-            st.markdown(f'<div class="val-badge">⏳ Plazo: {plazo_b_meses} meses</div>', unsafe_allow_html=True)
-        with b3:
-            st.caption("Comparación directa entre Banco 1 (TEA) y Banco 2 (Efectiva Periódica)")
+        ix1, ix2, ix3 = st.columns(3)
+        with ix1:
+            ix_vp = smart_num_input("Monto Inicial a Invertir ($):", 17000000.0, key="calc9_vp")
+            st.markdown(f'<div class="val-badge">💵 Inversión Inicial: ${fmt_m(ix_vp)}</div>', unsafe_allow_html=True)
+        with ix2:
+            ix_plazo_num = smart_num_input("Plazo de Inversión / Depósito:", 24.0, key="calc9_plazo")
+            ix_plazo_unit = st.selectbox("Unidad del Plazo:", ["Meses", "Años", "Trimestres", "Cuatrimestres", "Semestres"], key="calc9_unit")
+        with ix3:
+            ix_num_bancos = int(smart_num_input("Cantidad de Bancos a Comparar:", 2.0, key="calc9_num_bancos"))
+            if ix_num_bancos < 2: ix_num_bancos = 2
+            if ix_num_bancos > 5: ix_num_bancos = 5
 
-        st.markdown("#### Parámetros Banco 1 vs. Banco 2:")
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            tasa_b1_tea = smart_num_input("Tasa Banco 1 (TEA %):", 12.50, key="calc9_t1") / 100.0
-            st.markdown(f'<div class="val-badge">📈 Banco 1 TEA: {fmt_n(tasa_b1_tea*100, 2)}%</div>', unsafe_allow_html=True)
-        with col_b2:
-            tasa_b2_per = smart_num_input("Tasa Banco 2 (%):", 4.10, key="calc9_t2") / 100.0
-            freq_b2_name = st.selectbox("Periodicidad Tasa Banco 2:", ["Cuatrimestral (3/año)", "Trimestral (4/año)", "Semestral (2/año)", "Mensual (12/año)"], key="calc9_freq2")
-            
-        freq_map_b = {"Cuatrimestral (3/año)": 3, "Trimestral (4/año)": 4, "Semestral (2/año)": 2, "Mensual (12/año)": 12}
-        m_b2 = freq_map_b[freq_b2_name]
-        
-        tea_b2 = ((1 + tasa_b2_per) ** m_b2) - 1.0
-        anos_b = plazo_b_meses / 12.0
-        
-        vf_b1 = monto_inv_b * ((1 + tasa_b1_tea) ** anos_b)
-        int_b1 = vf_b1 - monto_inv_b
-        
-        vf_b2 = monto_inv_b * ((1 + tea_b2) ** anos_b)
-        int_b2 = vf_b2 - monto_inv_b
-        
-        mb1, mb2 = st.columns(2)
-        mb1.metric("Banco 1: VF Final / Intereses Ganados", f"${fmt_m(vf_b1)}", delta=f"Intereses: ${fmt_m(int_b1)}")
-        mb2.metric("Banco 2: VF Final / Intereses Ganados", f"${fmt_m(vf_b2)}", delta=f"Intereses: ${fmt_m(int_b2)}")
-        
-        diff_b = abs(int_b1 - int_b2)
-        if int_b1 > int_b2:
-            st.success(f"✅ **Ganará más intereses en el Banco 1** por una diferencia a favor de **${fmt_m(diff_b)}**.")
+        if ix_plazo_unit == "Meses":
+            t_anos = ix_plazo_num / 12.0
+        elif ix_plazo_unit == "Años":
+            t_anos = ix_plazo_num
+        elif ix_plazo_unit == "Trimestres":
+            t_anos = ix_plazo_num / 4.0
+        elif ix_plazo_unit == "Cuatrimestres":
+            t_anos = ix_plazo_num / 3.0
         else:
-            st.success(f"✅ **Ganará más intereses en el Banco 2** por una diferencia a favor de **${fmt_m(diff_b)}**.")
+            t_anos = ix_plazo_num / 2.0
+
+        st.markdown("#### 🏢 Configuración de Tasas por Entidad Bancaria:")
+        banco_cols = st.columns(min(ix_num_bancos, 3))
+        
+        bancos_data = []
+        default_names = ["Banco 1 (Ej. 12.5% TEA)", "Banco 2 (Ej. 4.1% TEC)", "Banco 3", "Banco 4", "Banco 5"]
+        default_rates = [12.50, 4.10, 3.80, 1.10, 14.00]
+        default_types = ["TEA (Efectiva Anual)", "TEC (Efectiva Cuatrimestral)", "TET (Efectiva Trimestral)", "TEM (Efectiva Mensual)", "TNA (Nominal Anual)"]
+
+        for idx in range(ix_num_bancos):
+            target_col = banco_cols[idx % 3]
+            with target_col:
+                st.markdown(f"**🏦 Entidad #{idx+1}**")
+                b_name = st.text_input(f"Nombre Banco #{idx+1}:", value=default_names[idx] if idx < len(default_names) else f"Banco {idx+1}", key=f"calc9_bname_{idx}")
+                b_tipo = st.selectbox(
+                    f"Tipo de Tasa {b_name}:",
+                    [
+                        "TEA (Efectiva Anual)",
+                        "TEC (Efectiva Cuatrimestral)",
+                        "TEM (Efectiva Mensual)",
+                        "TET (Efectiva Trimestral)",
+                        "TES (Efectiva Semestral)",
+                        "TEB (Efectiva Bimestral)",
+                        "TNA (Nominal Anual)"
+                    ],
+                    index=(0 if idx==0 else (1 if idx==1 else 2)),
+                    key=f"calc9_btipo_{idx}"
+                )
+                b_rate_val = smart_num_input(f"Tasa Ingresada (%):", default_rates[idx] if idx < len(default_rates) else 5.0, key=f"calc9_brate_{idx}")
+                
+                m_cap = 1
+                if b_tipo == "TNA (Nominal Anual)":
+                    m_cap = int(smart_num_input(f"Capitalizaciones por año (m):", 4.0, key=f"calc9_mcap_{idx}"))
+                    if m_cap < 1: m_cap = 1
+
+                # Conversión a TEA
+                r_dec = b_rate_val / 100.0
+                if b_tipo == "TEA (Efectiva Anual)":
+                    tea_b = r_dec
+                elif b_tipo == "TEM (Efectiva Mensual)":
+                    tea_b = ((1.0 + r_dec) ** 12) - 1.0
+                elif b_tipo == "TEB (Efectiva Bimestral)":
+                    tea_b = ((1.0 + r_dec) ** 6) - 1.0
+                elif b_tipo == "TET (Efectiva Trimestral)":
+                    tea_b = ((1.0 + r_dec) ** 4) - 1.0
+                elif b_tipo == "TEC (Efectiva Cuatrimestral)":
+                    tea_b = ((1.0 + r_dec) ** 3) - 1.0
+                elif b_tipo == "TES (Efectiva Semestral)":
+                    tea_b = ((1.0 + r_dec) ** 2) - 1.0
+                else: # TNA
+                    tea_b = ((1.0 + (r_dec / m_cap)) ** m_cap) - 1.0
+
+                vf_b = ix_vp * ((1.0 + tea_b) ** t_anos)
+                int_b = vf_b - ix_vp
+
+                bancos_data.append({
+                    "Nombre": b_name,
+                    "Tipo Tasa": b_tipo,
+                    "Tasa Ingresada (%)": b_rate_val,
+                    "TEA Equivalente": tea_b,
+                    "Monto Final": vf_b,
+                    "Intereses Ganados": int_b
+                })
+
+        # Ordenar de mayor a menor rentabilidad
+        bancos_sorted = sorted(bancos_data, key=lambda x: x["Monto Final"], reverse=True)
+        best_b = bancos_sorted[0]
+        second_best = bancos_sorted[1] if len(bancos_sorted) > 1 else bancos_sorted[0]
+
+        diff_best = best_b["Intereses Ganados"] - second_best["Intereses Ganados"]
+        diff_bps = (best_b["TEA Equivalente"] - second_best["TEA Equivalente"]) * 10000.0
+
+        st.markdown("### 🏆 Conclusión y Mejor Opción de Inversión:")
+        if diff_best > 0:
+            st.success(f"✅ **La mejor alternativa es {best_b['Nombre']}** con una **TEA Equivalente del {fmt_n(best_b['TEA Equivalente']*100, 2)}%**.\n\nGenera **${fmt_m(best_b['Intereses Ganados'])}** en intereses totales, superando a la segunda opción ({second_best['Nombre']}) por **${fmt_m(diff_best)}** adicionales ({fmt_n(diff_bps, 0)} puntos básicos de TEA).")
+        else:
+            st.success(f"✅ Las ofertas principales presentan el mismo rendimiento del **{fmt_n(best_b['TEA Equivalente']*100, 2)}% TEA**.")
+
+        # Tabla Comparativa Resumen
+        resumen_rows = []
+        for b in bancos_sorted:
+            diff_vs_max = best_b["Monto Final"] - b["Monto Final"]
+            resumen_rows.append({
+                "Entidad Bancaria": b["Nombre"],
+                "Tasa Ofrecida": f"{fmt_n(b['Tasa Ingresada (%)'], 2)}% ({b['Tipo Tasa'].split(' ')[0]})",
+                "TEA Equivalente (%)": f"{fmt_n(b['TEA Equivalente']*100, 4)}%",
+                "Monto Final Acumulado ($)": fmt_m(b["Monto Final"]),
+                "Intereses Ganados ($)": fmt_m(b["Intereses Ganados"]),
+                "Diferencia vs. Mejor ($)": f"-${fmt_m(diff_vs_max)}" if diff_vs_max > 0 else "🏆 Mejor Opción"
+            })
+
+        df_comp = pd.DataFrame(resumen_rows)
+        st.dataframe(df_comp, hide_index=True)
+        export_dataframe_button(df_comp, filename_prefix="comparativo_ofertas_bancarias")
 
     # -------------------------------------------------------------
     # HERRAMIENTA X
     # -------------------------------------------------------------
     elif calc_option.startswith("X. "):
         st.subheader("🛠️ X. Crédito Comercial / Bienes de Capital (Pagos Anuales & Cuota Mensual)")
+        st.caption("Evalúa créditos comerciales de bienes de capital con tasa semestral o cuatrimestral y pagos anuales. Muestra la cuota anual, cuota mensual equivalente, intereses totales y tabla de desarrollo.")
         
-        cm1, cm2, cm3 = st.columns(3)
-        with cm1:
-            monto_cam = smart_num_input("Valor Comercial / Préstamo ($):", 12000000.0, key="calc10_monto")
+        c_cam1, c_cam2, c_cam3 = st.columns(3)
+        with c_cam1:
+            monto_cam = smart_num_input("Valor Comercial del Bien / Crédito ($):", 12000000.0, key="calc10_monto")
             st.markdown(f'<div class="val-badge">💵 Crédito: ${fmt_m(monto_cam)}</div>', unsafe_allow_html=True)
-        with cm2:
-            meses_cam = smart_num_input("Plazo en Meses:", 36.0, key="calc10_meses")
-            st.markdown(f'<div class="val-badge">⏳ Plazo: {meses_cam} meses ({fmt_n(meses_cam/12, 0)} años)</div>', unsafe_allow_html=True)
-        with cm3:
-            tasa_sem_cam = smart_num_input("Tasa Efectiva Semestral (%):", 7.40, key="calc10_tasa") / 100.0
-            st.markdown(f'<div class="val-badge">📈 Tasa Semestral: {fmt_n(tasa_sem_cam*100, 2)}%</div>', unsafe_allow_html=True)
             
-        tea_cam = ((1 + tasa_sem_cam) ** 2) - 1.0
+            plazo_m_cam = smart_num_input("Plazo del Crédito (Meses):", 36.0, key="calc10_plazo")
+            st.markdown(f'<div class="val-badge">⏳ Plazo: {plazo_m_cam} meses ({fmt_n(plazo_m_cam/12, 1)} años)</div>', unsafe_allow_html=True)
+            
+        with c_cam2:
+            tasa_cam_val = smart_num_input("Tasa de Interés Ingresada (%):", 7.40, key="calc10_tasa") / 100.0
+            st.markdown(f'<div class="val-badge">📈 Tasa Ingresada: {fmt_n(tasa_cam_val*100, 2)}%</div>', unsafe_allow_html=True)
+            
+            tipo_tasa_cam = st.selectbox("Periodicidad de la Tasa Ingresada:", ["Semestral (2/año)", "Cuatrimestral (3/año)", "Trimestral (4/año)", "Efectiva Mensual (12/año)"], key="calc10_tipo_tasa")
+            
+        with c_cam3:
+            freq_pago_cam = st.selectbox("Frecuencia Real de Pago de Cuotas:", ["Anual (1/año)", "Mensual (12/año)", "Semestral (2/año)"], key="calc10_freq_pago")
+
+        freq_tasa_map = {"Semestral (2/año)": 2, "Cuatrimestral (3/año)": 3, "Trimestral (4/año)": 4, "Efectiva Mensual (12/año)": 12}
+        freq_pago_map = {"Anual (1/año)": 1, "Mensual (12/año)": 12, "Semestral (2/año)": 2}
+        
+        m_t_cam = freq_tasa_map[tipo_tasa_cam]
+        m_p_cam = freq_pago_map[freq_pago_cam]
+
+        tea_cam = ((1 + tasa_cam_val) ** m_t_cam) - 1.0
+        i_cuota_cam = ((1 + tea_cam) ** (1.0 / m_p_cam)) - 1.0
         i_mensual_cam = ((1 + tea_cam) ** (1.0 / 12.0)) - 1.0
-        n_anos_cam = int(round(meses_cam / 12.0))
-        if n_anos_cam < 1: n_anos_cam = 1
+
+        n_anos_cam = plazo_m_cam / 12.0
+        n_cuotas_cam = int(round(n_anos_cam * m_p_cam))
+        if n_cuotas_cam < 1: n_cuotas_cam = 1
+
+        cuota_pago_cam = monto_cam * (i_cuota_cam / (1 - (1 + i_cuota_cam)**(-n_cuotas_cam)))
         
-        cuota_anual_cam = monto_cam * (tea_cam / (1 - (1 + tea_cam)**(-n_anos_cam)))
-        cuota_mensual_cam = monto_cam * (i_mensual_cam / (1 - (1 + i_mensual_cam)**(-meses_cam)))
+        n_meses_totales = int(round(plazo_m_cam))
+        cuota_mensual_eq = monto_cam * (i_mensual_cam / (1 - (1 + i_mensual_cam)**(-n_meses_totales)))
+
+        saldo_c = monto_cam
+        intereses_totales_cam = 0.0
+        tabla_cam_rows = []
         
-        m_c1, m_c2, m_c3 = st.columns(3)
-        m_c1.metric("TEA Equivalente", f"{fmt_n(tea_cam*100, 4)}%")
-        m_c2.metric("Cuota Anual Fija (R_anual)", f"${fmt_m(cuota_anual_cam)}")
-        m_c3.metric("Cuota Mensual Equivalente (R_mensual)", f"${fmt_m(cuota_mensual_cam)}")
-        
-        saldo_cam = monto_cam
-        tabla_cam = []
-        for ano in range(1, n_anos_cam + 1):
-            int_ano = saldo_cam * tea_cam
-            amort_ano = cuota_anual_cam - int_ano
-            saldo_fin_ano = max(0.0, saldo_cam - amort_ano)
-            tabla_cam.append({
-                "Periodo (Año)": f"Año {ano}",
-                "Saldo Inicial ($)": fmt_m(saldo_cam),
-                "Cuota Anual ($)": fmt_m(cuota_anual_cam),
-                "Interés ($)": fmt_m(int_ano),
-                "Amortización ($)": fmt_m(amort_ano),
-                "Saldo Final ($)": fmt_m(saldo_fin_ano)
-            })
-            saldo_cam = saldo_fin_ano
+        for period in range(1, n_cuotas_cam + 1):
+            int_c = saldo_c * i_cuota_cam
+            amort_c = cuota_pago_cam - int_c
+            saldo_next = max(0.0, saldo_c - amort_c)
+            intereses_totales_cam += int_c
             
-        df_tabla_cam = pd.DataFrame(tabla_cam)
-        intereses_totales_cam = (cuota_anual_cam * n_anos_cam) - monto_cam
-        
-        st.markdown("#### 📊 Tabla de Desarrollo Anual del Crédito:")
+            tabla_cam_rows.append({
+                "Periodo": f"Año {period}" if m_p_cam == 1 else f"Cuota {period}",
+                "Saldo Inicial ($)": fmt_m(saldo_c),
+                "Cuota ($)": fmt_m(cuota_pago_cam),
+                "Amortización ($)": fmt_m(amort_c),
+                "Interés ($)": fmt_m(int_c),
+                "Saldo Final ($)": fmt_m(saldo_next)
+            })
+            saldo_c = saldo_next
+
+        st.markdown("### 🎯 Resultados Financieros:")
+        m_cam1, m_cam2, m_cam3, m_cam4 = st.columns(4)
+        m_cam1.metric("Tasa Efectiva Anual (TEA)", f"{fmt_n(tea_cam*100, 4)}%")
+        m_cam2.metric(f"Cuota {freq_pago_cam.split(' ')[0]} Fija", f"${fmt_m(cuota_pago_cam)}")
+        m_cam3.metric("Cuota Mensual Equivalente", f"${fmt_m(cuota_mensual_eq)}")
+        m_cam4.metric("Intereses Totales Pagados", f"${fmt_m(intereses_totales_cam)}")
+
+        st.markdown("#### 📅 Tabla de Desarrollo de Amortización del Crédito:")
+        df_tabla_cam = pd.DataFrame(tabla_cam_rows)
         st.dataframe(df_tabla_cam, hide_index=True)
         export_dataframe_button(df_tabla_cam, filename_prefix="tabla_desarrollo_credito_comercial")
-        
-        st.success(f"✅ Al final de los {n_anos_cam} años del crédito, pagará **${fmt_m(intereses_totales_cam)}** sólo por concepto de intereses.")
 
     # -------------------------------------------------------------
     # HERRAMIENTA XI
     # -------------------------------------------------------------
     elif calc_option.startswith("XI. "):
         st.subheader("🛠️ XI. Tasa Implícita Anual para Créditos o Inversiones de Pago Único")
+        st.caption("Calcula la tasa de interés implícita anual (TEA), trimestral, periódica y nominal para una operación con un único pago al final del plazo.")
         
         imp1, imp2, imp3 = st.columns(3)
         with imp1:
