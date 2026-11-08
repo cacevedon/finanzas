@@ -1,14 +1,14 @@
 """
 Plataforma de Simulación e Ingeniería Financiera.
 
-Convenciones del curso (apuntes S1–S6 y clases sincrónicas):
+Convenciones de cálculo:
 - Si el enunciado no dice "simple", se asume interés COMPUESTO.
 - La tasa debe expresarse en la misma unidad de tiempo que los períodos/cuotas.
 - Una tasa "mensual", "trimestral", "cuatrimestral", "semestral" o "anual" sin más
   especificación se trata como EFECTIVA de ese período: 1 + TE = (1 + i')^n.
 - Una tasa NOMINAL anual con capitalización m se divide por m para obtener la tasa del período.
 - Las cuotas de crédito son anualidades vencidas; cuota = amortización + interés.
-- En las evaluaciones la tasa se responde en decimales (0,1696 y no 16,96 %).
+- La tasa se informa también en decimales (0,1696 equivale a 16,96 %).
 """
 import io
 import math
@@ -65,6 +65,8 @@ def fmt_currency(val):
         val = float(val)
     except (ValueError, TypeError):
         return "$0"
+    if abs(val) < 0.005:
+        val = 0.0
     neg = val < 0
     val = abs(val)
     if abs(val - round(val)) < 1e-7:
@@ -89,10 +91,9 @@ def pct(dec_rate, d=4):
 
 
 def fmt_tasa(dec_rate, d=4):
-    """Muestra la tasa en % y en decimal (formato exigido en las solemnes)."""
-    pct = f"{dec_rate*100:.{d}f}".replace(".", ",")
+    """Muestra la tasa en % y en decimal (formato decimal habitual en evaluaciones)."""
     dec = f"{dec_rate:.{d+2}f}".replace(".", ",")
-    return f"{pct}% (decimal: {dec})"
+    return f"{pct(dec_rate, d)} (decimal: {dec})"
 
 
 def smart_num_input(label, default_val=0.0, key=None, is_currency=True, is_percent=False, help_text=None):
@@ -221,9 +222,9 @@ def vp_gradiente_geometrico(a1, g, i, n):
 # Encabezado y navegación
 # =====================================================================
 st.markdown('<div class="main-header">Plataforma de Simulación e Ingeniería Financiera</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Calculadoras alineadas a la Unidad 1 y 2 del curso ICIO K002 (USS).</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Calculadoras de matemática financiera: interés, tasas, anualidades, gradientes, presupuesto y evaluación de proyectos.</div>', unsafe_allow_html=True)
 
-st.sidebar.title("📌 Navegación del Curso")
+st.sidebar.title("📌 Navegación")
 modulo = st.sidebar.radio(
     "Selecciona un Módulo:",
     [
@@ -305,11 +306,15 @@ elif modulo == "2. Interés Simple y Compuesto":
             st.success(f"**VP = {fmt_currency(res)}**")
             st.code("VP = VF / (1 + i·n)" if simple else "VP = VF / (1 + i)^n   |   Excel: =VA(i; n; ; -VF)")
         elif incog == "Tasa del período (i)" and vp > 0 and vf > 0 and n > 0:
+            if vf <= vp:
+                raise ValueError
             res = (vf / vp - 1) / n if simple else (vf / vp) ** (1 / n) - 1
             st.success(f"**i = {fmt_tasa(res)}** por período")
             st.code("i = (VF/VP − 1) / n" if simple else "i = (VF/VP)^(1/n) − 1   |   Excel: =TASA(n; ; -VP; VF)")
         elif incog == "Plazo (n)" and vp > 0 and vf > 0 and i > 0:
             res = (vf / vp - 1) / i if simple else math.log(vf / vp) / math.log(1 + i)
+            if res <= 0:
+                raise ValueError
             st.success(f"**n = {fmt_num(res, 4)} períodos**")
             st.code("n = (VF/VP − 1) / i" if simple else "n = [log(VF) − log(VP)] / log(1 + i)   |   Excel: =NPER(i; ; -VP; VF)")
         else:
@@ -529,12 +534,12 @@ elif modulo == "6. Presupuesto y Flujo de Caja":
         caja_ini = smart_num_input("Caja inicial ($):", key="m6_caja")
     pc5, pc6, pc7 = st.columns(3)
     with pc5:
-        pct_cv = smart_num_input("Costo variable (% de ventas, mes 1):", default_val=40.0, key="m6_pcv",
+        pct_cv = smart_num_input("Costo variable (% de ventas, mes 1):", key="m6_pcv",
                                  is_currency=False, is_percent=True)
     with pc6:
-        gf_base = smart_num_input("Gastos fijos mes 1 ($):", default_val=5000.0, key="m6_gf")
+        gf_base = smart_num_input("Gastos fijos mes 1 ($):", key="m6_gf")
     with pc7:
-        imp = smart_num_input("Impuesto sobre utilidad (%):", default_val=27.0, key="m6_imp",
+        imp = smart_num_input("Impuesto sobre utilidad (%):", key="m6_imp",
                               is_currency=False, is_percent=True)
 
     if v_base > 0:
@@ -591,9 +596,11 @@ elif modulo == "7. Evaluación de Proyectos (VAN/TIR)":
     inv_ini = smart_num_input("Inversión inicial ($):", key="m7_inv")
     tmar_val = smart_num_input("TMAR / tasa de descuento efectiva por período (%):", key="m7_tmar",
                                is_currency=False, is_percent=True)
-    n_fl = int(smart_num_input("Número de períodos con flujo:", default_val=5.0, key="m7_nfl", is_currency=False))
-    n_fl = max(1, min(n_fl, 30))
+    n_fl = int(smart_num_input("Número de períodos con flujo (1 a 30):", key="m7_nfl", is_currency=False))
+    n_fl = max(0, min(n_fl, 30))
     flujos = []
+    if n_fl == 0:
+        st.info("Indica cuántos períodos tienen flujo.")
     cols = st.columns(5)
     for idx in range(n_fl):
         with cols[idx % 5]:
@@ -604,13 +611,11 @@ elif modulo == "7. Evaluación de Proyectos (VAN/TIR)":
         van_val = npf.npv(tmar_dec, [-inv_ini] + flujos)
         tir_val = npf.irr([-inv_ini] + flujos)
         c1, c2 = st.columns(2)
-        c1.metric("VAN", fmt_currency(van_val), delta="Viable" if van_val > 0 else "No viable",
-                  delta_color="normal" if van_val > 0 else "inverse")
+        c1.metric("VAN", fmt_currency(van_val), delta="Viable" if van_val > 0 else "-No viable")
         if tir_val is None or math.isnan(tir_val):
             c2.metric("TIR", "No definida")
         else:
-            c2.metric("TIR", pct(tir_val, 2), delta="TIR > TMAR" if tir_val > tmar_dec else "TIR < TMAR",
-                      delta_color="normal" if tir_val > tmar_dec else "inverse")
+            c2.metric("TIR", pct(tir_val, 2), delta="TIR > TMAR" if tir_val > tmar_dec else "-TIR < TMAR")
         st.caption("Tip: los flujos con gradiente pueden generarse en el Módulo 5.")
 
 # =====================================================================
@@ -822,10 +827,11 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             monto_h9 = smart_num_input("Monto del depósito ($):", key="h9_monto")
         with c2:
             plazo_h9 = smart_num_input("Plazo total en meses:", key="h9_plazo_m", is_currency=False)
-        n_b = max(2, min(5, int(smart_num_input("Cantidad de bancos (2 a 5):", default_val=2.0, key="h9_n_bancos",
-                                                is_currency=False))))
+        n_b = min(5, int(smart_num_input("Cantidad de bancos (2 a 5):", key="h9_n_bancos", is_currency=False)))
         regimen_h9 = ["Compuesto", "Simple"]
-        if monto_h9 > 0 and plazo_h9 > 0:
+        if monto_h9 > 0 and plazo_h9 > 0 and n_b < 2:
+            st.info("Indica entre 2 y 5 bancos para comparar.")
+        elif monto_h9 > 0 and plazo_h9 > 0:
             datos = []
             for idx in range(n_b):
                 st.markdown(f"**Banco #{idx+1}**")
@@ -842,7 +848,7 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
                         tea_b = tasa_a_periodo(tasa, tipo, per, cap, "Anual")
                         vf_b = monto_h9 * (1 + tea_b) ** (plazo_h9 / 12.0)
                     datos.append({"Banco": b_name.strip() or f"Banco {idx+1}",
-                                  "Tasa ofrecida": f"{tasa*100:.4f}% {tipo.split()[0].lower()} ({per.lower() if not tipo.startswith('Nominal') else 'cap. ' + cap.lower()}) · {reg.lower()}",
+                                  "Tasa ofrecida": f"{pct(tasa, 4)} {tipo.split()[0].lower()} ({per.lower() if not tipo.startswith('Nominal') else 'cap. ' + cap.lower()}) · {reg.lower()}",
                                   "TEA equivalente": pct(tea_b, 4),
                                   "Monto final ($)": vf_b, "Intereses ($)": vf_b - monto_h9})
             if datos:
@@ -931,10 +937,10 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             com_h14 = smart_num_input("Comisión anual ($):", key="h14_com")
         if monto_h14 > 0:
             pct_com = com_h14 / monto_h14 * 100.0
-            st.metric("Comisión sobre el crédito", f"{pct_com:.2f}%")
-            st.metric("CFT", f"{tea_h14 + pct_com:.2f}%")
+            st.metric("Comisión sobre el crédito", pct(pct_com / 100.0, 2))
+            st.metric("CFT", pct((tea_h14 + pct_com) / 100.0, 2))
             st.metric("Costo total en dinero (1 año)", fmt_currency(monto_h14 * tea_h14 / 100.0 + com_h14))
-            st.caption("Aproximación del curso (horizonte de 1 año): CFT ≈ TEA + comisión/monto. "
+            st.caption("Aproximación simplificada (horizonte de 1 año): CFT ≈ TEA + comisión/monto. "
                        "Para créditos en cuotas, el CFT exacto es la TIR de los flujos netos.")
 
 st.markdown("---")
