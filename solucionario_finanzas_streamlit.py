@@ -276,6 +276,38 @@ def vp_gradiente_geometrico(a1, g, i, n):
         return a1 * n / (1 + i)
     return a1 * (1 - ((1 + g) / (1 + i)) ** n) / (i - g)
 
+def presupuesto_produccion_compras(productos, meses, pct_ifd_pt, ii_mp, pct_ifd_mp, costo_mp):
+    """
+    productos: lista de dicts {nombre, precio, ii_pt, kg_mp, ventas: [v_1..v_n, v_{n+1}]}
+    Unidades a producir = Ventas + IFD PT − II PT, con IFD PT = % × ventas del mes siguiente
+    Compras MP (kg)     = MP requerida + IFD MP − II MP, con IFD MP = % × MP requerida del mes siguiente
+    Supuesto para el mes n+1: producción = ventas proyectadas de ese mes (inventario de PT estable).
+    """
+    filas_pt, req_mp = [], [0.0] * (meses + 1)
+    for prod in productos:
+        ii = prod["ii_pt"]
+        for m in range(meses):
+            ventas = prod["ventas"][m]
+            ifd = pct_ifd_pt * prod["ventas"][m + 1]
+            producir = ventas + ifd - ii
+            filas_pt.append({"Mes": m + 1, "Producto": prod["nombre"], "Unidades a vender": ventas,
+                             "(+) IFD PT": ifd, "(−) II PT": ii, "Unidades a producir": producir,
+                             "MP requerida (kg)": producir * prod["kg_mp"],
+                             "Ingreso por ventas ($)": ventas * prod["precio"]})
+            req_mp[m] += producir * prod["kg_mp"]
+            ii = ifd
+        req_mp[meses] += prod["ventas"][meses] * prod["kg_mp"]
+    filas_mp, ii = [], ii_mp
+    for m in range(meses):
+        ifd = pct_ifd_mp * req_mp[m + 1]
+        compra = req_mp[m] + ifd - ii
+        filas_mp.append({"Mes": m + 1, "MP requerida (kg)": req_mp[m], "(+) IFD MP (kg)": ifd,
+                         "(−) II MP (kg)": ii, "Kg a comprar": compra, "Costo unitario MP ($)": costo_mp,
+                         "Costo de compras ($)": compra * costo_mp})
+        ii = ifd
+    return pd.DataFrame(filas_pt), pd.DataFrame(filas_mp)
+
+
 # =====================================================================
 # Encabezado y navegación
 # =====================================================================
@@ -294,6 +326,7 @@ modulo = st.sidebar.radio(
         "6. Presupuesto y Flujo de Caja",
         "7. Evaluación de Proyectos (VAN/TIR)",
         "8. Calculadoras Especializadas y Simuladores",
+        "9. Presupuesto de Producción, Compras y Costos",
     ],
 )
 st.sidebar.markdown("---")
@@ -1099,6 +1132,164 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             mostrar_tabla(df14, "cft.xlsx", "CFT", "Desglose del costo financiero total")
             st.caption("Aproximación simplificada (horizonte de 1 año): CFT ≈ TEA + comisión/monto. "
                        "Para créditos en cuotas, el CFT exacto es la TIR de los flujos netos.")
+
+# =====================================================================
+# MÓDULO 9
+# =====================================================================
+if modulo == "9. Presupuesto de Producción, Compras y Costos":
+    st.header("Presupuestos Operacionales: Producción, Compras y Costos")
+    tab_p, tab_c = st.tabs(["🏭 Presupuesto de producción y compras", "🧮 Costo unitario y precio"])
+
+    with tab_p:
+        st.latex(r"\text{Producir} = \text{Ventas} + IFD_{PT} - II_{PT} \qquad "
+                 r"\text{Comprar (kg)} = MP_{req} + IFD_{MP} - II_{MP}")
+        c1, c2 = st.columns(2)
+        with c1:
+            n_prod = int(smart_num_input("Número de productos (1 a 10):", key="m9_nprod", is_currency=False))
+        with c2:
+            n_mes = int(smart_num_input("Meses a presupuestar (1 a 12):", key="m9_nmes", is_currency=False))
+        n_prod, n_mes = max(0, min(n_prod, 10)), max(0, min(n_mes, 12))
+
+        c3, c4, c5, c6 = st.columns(4)
+        with c3:
+            pct_pt = smart_num_input("IFD PT (% ventas mes siguiente):", key="m9_ifdpt", is_currency=False, is_percent=True)
+        with c4:
+            pct_mp = smart_num_input("IFD MP (% MP req. mes siguiente):", key="m9_ifdmp", is_currency=False, is_percent=True)
+        with c5:
+            ii_mp = smart_num_input("II de MP al inicio (kg):", key="m9_iimp", is_currency=False)
+        with c6:
+            costo_mp = smart_num_input("Costo de MP ($/kg):", key="m9_costomp")
+
+        if n_prod > 0 and n_mes > 0:
+            st.markdown("**Datos por producto** (edita la tabla; 'Ventas mes siguiente' se usa para el IFD del último mes)")
+            cols_v = [f"Ventas mes {m}" for m in range(1, n_mes + 1)] + ["Ventas mes siguiente"]
+            base = pd.DataFrame({"Producto": [f"Producto {k}" for k in range(1, n_prod + 1)],
+                                 "Precio ($)": [0.0] * n_prod, "II PT (unid.)": [0.0] * n_prod,
+                                 "MP por unidad (kg)": [0.0] * n_prod,
+                                 **{c: [0.0] * n_prod for c in cols_v}})
+            edit = st.data_editor(base, hide_index=True, key=f"m9_editor_{n_prod}_{n_mes}", num_rows="fixed")
+            usar_constante = st.checkbox("Ventas constantes: copiar 'Ventas mes 1' a todos los meses", key="m9_const")
+
+            productos = []
+            for _, r in edit.iterrows():
+                ventas = [float(r[c] or 0) for c in cols_v]
+                if usar_constante:
+                    ventas = [ventas[0]] * len(ventas)
+                productos.append({"nombre": str(r["Producto"]), "precio": float(r["Precio ($)"] or 0),
+                                  "ii_pt": float(r["II PT (unid.)"] or 0), "kg_mp": float(r["MP por unidad (kg)"] or 0),
+                                  "ventas": ventas})
+
+            if any(sum(p["ventas"]) > 0 for p in productos):
+                df_pt, df_mp = presupuesto_produccion_compras(productos, n_mes, pct_pt / 100.0, ii_mp,
+                                                              pct_mp / 100.0, costo_mp)
+                if (df_pt["Unidades a producir"] < 0).any():
+                    st.warning("Hay meses con producción negativa: el inventario inicial supera lo requerido.")
+                if (df_mp["Kg a comprar"] < 0).any():
+                    st.warning("Hay meses con compra negativa: el inventario inicial de MP supera lo requerido.")
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Unidades vendidas (total)", fmt_num(df_pt["Unidades a vender"].sum()))
+                m2.metric("Unidades producidas (total)", fmt_num(df_pt["Unidades a producir"].sum()))
+                m3.metric("Costo total de compras", fmt_currency(df_mp["Costo de compras ($)"].sum()))
+
+                mostrar_tabla(df_pt, "presupuesto_produccion.xlsx", "Producción", "Presupuesto de producción (unidades)")
+                resumen = df_pt.groupby("Producto", sort=False)[["Unidades a vender", "Unidades a producir",
+                                                                 "MP requerida (kg)", "Ingreso por ventas ($)"]].sum().reset_index()
+                resumen["Diferencia producción − ventas"] = resumen["Unidades a producir"] - resumen["Unidades a vender"]
+                mostrar_tabla(resumen, "resumen_produccion.xlsx", "Resumen", "Resumen del período por producto")
+
+                tot = {"Mes": "Total", "MP requerida (kg)": df_mp["MP requerida (kg)"].sum(),
+                       "(+) IFD MP (kg)": df_mp["(+) IFD MP (kg)"].iloc[-1], "(−) II MP (kg)": df_mp["(−) II MP (kg)"].iloc[0],
+                       "Kg a comprar": df_mp["Kg a comprar"].sum(), "Costo unitario MP ($)": costo_mp,
+                       "Costo de compras ($)": df_mp["Costo de compras ($)"].sum()}
+                df_mp_tot = pd.concat([df_mp.astype({"Mes": object}), pd.DataFrame([tot])], ignore_index=True)
+                mostrar_tabla(df_mp_tot, "presupuesto_compras.xlsx", "Compras", "Presupuesto de compras de materia prima")
+                st.caption("En el total, el IFD es el del último mes y el II el del primero (los intermedios se compensan).")
+                st.bar_chart(df_mp.set_index("Mes")[["MP requerida (kg)", "Kg a comprar"]])
+
+                st.markdown("#### Sensibilidad de la política de inventario de MP")
+                pct_alt = smart_num_input("IFD MP alternativo (%):", key="m9_ifdalt", is_currency=False, is_percent=True)
+                if pct_alt > 0:
+                    _, df_alt = presupuesto_produccion_compras(productos, n_mes, pct_pt / 100.0, ii_mp,
+                                                               pct_alt / 100.0, costo_mp)
+                    c_base, c_alt = df_mp["Costo de compras ($)"], df_alt["Costo de compras ($)"]
+                    df_sens = pd.DataFrame({"Mes": df_mp["Mes"],
+                                            f"Compra con IFD {fmt_num(pct_mp)}% ($)": c_base,
+                                            f"Compra con IFD {fmt_num(pct_alt)}% ($)": c_alt,
+                                            "Diferencia ($)": c_alt - c_base})
+                    base1 = c_base.iloc[0]
+                    var1 = (c_alt.iloc[0] - base1) / base1 if base1 else 0.0
+                    st.info(f"Mes 1: la compra pasa de **{fmt_currency(base1)}** a **{fmt_currency(c_alt.iloc[0])}** "
+                            f"({'+' if var1 >= 0 else ''}{pct(var1, 2)}). Capital de trabajo adicional inmovilizado al cierre: "
+                            f"**{fmt_currency((df_alt['(+) IFD MP (kg)'].iloc[-1] - df_mp['(+) IFD MP (kg)'].iloc[-1]) * costo_mp)}**.")
+                    mostrar_tabla(df_sens, "sensibilidad_ifd_mp.xlsx", "Sensibilidad", "Comparación de políticas de inventario")
+                    st.caption("Mayor IFD: menos riesgo de quiebre de stock, pero más caja inmovilizada y costos de "
+                               "almacenamiento/obsolescencia. Menor IFD: más liquidez, mayor riesgo ante demoras o alzas de demanda.")
+            else:
+                st.info("Ingresa las ventas proyectadas en la tabla.")
+        else:
+            st.info("Indica el número de productos y de meses.")
+
+    with tab_c:
+        st.caption("Costos directos (MP y MOD) varían con el volumen; los gastos generales (arriendo, servicios, "
+                   "seguros, publicidad) son fijos y se distribuyen entre las unidades producidas.")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            mp_u = smart_num_input("Materia prima por unidad ($):", key="m9c_mp")
+            mod_u = smart_num_input("Mano de obra directa por unidad ($):", key="m9c_mod")
+        with c2:
+            otros_u = smart_num_input("Otros costos variables por unidad ($):", key="m9c_otros")
+            fijos = smart_num_input("Costos y gastos fijos del período ($):", key="m9c_fijos")
+        with c3:
+            vol = smart_num_input("Unidades producidas en el período:", key="m9c_vol", is_currency=False)
+            margen = smart_num_input("Margen deseado sobre costo (%):", key="m9c_margen", is_currency=False, is_percent=True)
+        c4, c5 = st.columns(2)
+        with c4:
+            var_mp = smart_num_input("Variación del precio de la MP (%, ej. 20):", key="m9c_varmp", is_currency=False, is_percent=True)
+        with c5:
+            precio_actual = smart_num_input("Precio de venta actual ($, opcional):", key="m9c_precio")
+
+        if vol > 0 and (mp_u + mod_u + otros_u + fijos) > 0:
+            cv_u = mp_u + mod_u + otros_u
+            cf_u = fijos / vol
+            costo_u = cv_u + cf_u
+            precio_sug = costo_u * (1 + margen / 100.0)
+            costo_u_alza = costo_u + mp_u * var_mp / 100.0
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Costo variable unitario", fmt_currency(cv_u))
+            m2.metric("Costo fijo unitario", fmt_currency(cf_u))
+            m3.metric("Costo total unitario", fmt_currency(costo_u))
+            m4.metric("Precio sugerido", fmt_currency(precio_sug))
+            if var_mp != 0:
+                st.info(f"Con una variación de {fmt_num(var_mp)}% en la MP, el costo unitario pasa a "
+                        f"**{fmt_currency(costo_u_alza)}** ({pct((costo_u_alza - costo_u) / costo_u, 2)}); "
+                        f"para mantener el margen, el precio debería ser **{fmt_currency(costo_u_alza * (1 + margen / 100.0))}**.")
+            if precio_actual > 0:
+                mc = precio_actual - cv_u
+                st.write(f"• Margen bruto unitario: **{fmt_currency(precio_actual - costo_u)}** "
+                         f"({pct((precio_actual - costo_u) / precio_actual, 2)} del precio)")
+                if mc > 0:
+                    st.write(f"• Punto de equilibrio: **{fmt_num(fijos / mc)} unidades** por período")
+                else:
+                    st.error("El precio no cubre el costo variable unitario.")
+
+            desglose = pd.DataFrame([
+                {"Componente": "Materia prima", "Tipo": "Costo directo variable", "Por unidad ($)": mp_u, "Total del período ($)": mp_u * vol},
+                {"Componente": "Mano de obra directa", "Tipo": "Costo directo variable", "Por unidad ($)": mod_u, "Total del período ($)": mod_u * vol},
+                {"Componente": "Otros variables", "Tipo": "Costo variable", "Por unidad ($)": otros_u, "Total del período ($)": otros_u * vol},
+                {"Componente": "Costos y gastos fijos", "Tipo": "Fijo (se prorratea)", "Por unidad ($)": cf_u, "Total del período ($)": fijos},
+                {"Componente": "Costo total", "Tipo": "", "Por unidad ($)": costo_u, "Total del período ($)": costo_u * vol}])
+            mostrar_tabla(desglose, "costo_unitario.xlsx", "Costos", "Composición del costo")
+
+            factores = [0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
+            escala = pd.DataFrame([{"Unidades": vol * f, "Costo variable unitario ($)": cv_u,
+                                    "Costo fijo unitario ($)": fijos / (vol * f), "Costo total unitario ($)": cv_u + fijos / (vol * f),
+                                    "Costo total del período ($)": cv_u * vol * f + fijos} for f in factores])
+            st.line_chart(escala.set_index("Unidades")[["Costo total unitario ($)"]])
+            mostrar_tabla(escala, "economia_escala.xlsx", "Escala",
+                          "Efecto del volumen en el costo unitario (economías de escala)")
+        else:
+            st.info("Ingresa costos por unidad, costos fijos y unidades producidas.")
 
 st.markdown("---")
 st.caption("Plataforma de Simulación e Ingeniería Financiera")
