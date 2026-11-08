@@ -220,7 +220,7 @@ def vp_gradiente_geometrico(a1, g, i, n):
 # =====================================================================
 # Encabezado y navegación
 # =====================================================================
-st.markdown('<div class="main-header">04 FINANZAS — Plataforma de Simulación e Ingeniería Financiera</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">Plataforma de Simulación e Ingeniería Financiera</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Calculadoras alineadas a la Unidad 1 y 2 del curso ICIO K002 (USS).</div>', unsafe_allow_html=True)
 
 st.sidebar.title("📌 Navegación del Curso")
