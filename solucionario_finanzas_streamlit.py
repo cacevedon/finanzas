@@ -117,12 +117,70 @@ def smart_num_input(label, default_val=0.0, key=None, is_currency=True, is_perce
 
 
 def excel_download(df, sheet, filename, label):
-    """Exporta un DataFrame numérico a .xlsx en memoria."""
+    """Exporta un DataFrame numérico a .xlsx en memoria (montos como números, tasas en decimal)."""
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet)
-    st.download_button(label, buf.getvalue(), file_name=filename,
+        df.to_excel(writer, index=False, sheet_name=sheet[:31])
+        ws = writer.sheets[sheet[:31]]
+        for idx, col in enumerate(df.columns, 1):
+            letra = ws.cell(row=1, column=idx).column_letter
+            ws.column_dimensions[letra].width = max(14, len(str(col)) + 2)
+            fmt = None
+            if str(col).endswith("($)"):
+                fmt = "#,##0.00"
+            elif str(col).endswith("(%)"):
+                fmt = "0.0000%"
+            elif "Factor" in str(col):
+                fmt = "0.000000"
+            if fmt:
+                for row in range(2, len(df) + 2):
+                    ws.cell(row=row, column=idx).number_format = fmt
+    st.download_button(label, buf.getvalue(), file_name=filename, key=f"dl_{filename}",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+def mostrar_tabla(df, archivo, hoja="Desarrollo", titulo="Tabla de desarrollo"):
+    """Muestra la tabla formateada y ofrece su descarga en Excel.
+    Convención de columnas: '($)' = monto, '(%)' = tasa en decimal, 'Factor' = factor financiero."""
+    st.markdown(f"#### {titulo}")
+    disp = df.copy()
+    for c in disp.columns:
+        if str(c).endswith("($)"):
+            disp[c] = disp[c].apply(fmt_currency)
+        elif str(c).endswith("(%)"):
+            disp[c] = disp[c].apply(lambda x: "—" if pd.isna(x) else pct(x, 4))
+        elif "Factor" in str(c):
+            disp[c] = disp[c].apply(lambda x: fmt_num(x, 6))
+    st.dataframe(disp, hide_index=True)
+    excel_download(df, hoja, archivo, f"📥 Descargar Excel ({archivo})")
+
+
+def tabla_capitalizacion(vp, i, n, simple=False):
+    """Período a período: capital inicial, interés y capital final (admite n fraccionario en el último tramo)."""
+    filas, cap = [], vp
+    n_ent = int(math.floor(n))
+    tramos = [1.0] * n_ent + ([n - n_ent] if n - n_ent > 1e-9 else [])
+    t = 0.0
+    for d in tramos:
+        t += d
+        interes = vp * i * d if simple else cap * ((1 + i) ** d - 1)
+        filas.append({"Período": round(t, 4), "Capital inicial ($)": cap, "Interés del período ($)": interes,
+                      "Interés acumulado ($)": cap + interes - vp, "Capital final ($)": cap + interes})
+        cap += interes
+    return pd.DataFrame(filas)
+
+
+def tabla_flujos(flujos_por_periodo, i, horizonte=None):
+    """flujos_por_periodo: lista de (período, monto). VP en t=0 y VF en el horizonte."""
+    h = horizonte if horizonte is not None else max(p for p, _ in flujos_por_periodo)
+    filas = []
+    for per, monto in flujos_por_periodo:
+        f_vp = (1 + i) ** (-per)
+        filas.append({"Período": per, "Flujo ($)": monto, "Factor de descuento": f_vp,
+                      "VP del flujo ($)": monto * f_vp, f"VF del flujo en t={h} ($)": monto * (1 + i) ** (h - per)})
+    df = pd.DataFrame(filas)
+    df["VP acumulado ($)"] = df["VP del flujo ($)"].cumsum()
+    return df
 
 # =====================================================================
 # Núcleo financiero
@@ -266,6 +324,8 @@ if modulo == "1. Fundamentos y Decisiones":
             vf_dec = monto_dec * (1 + tasa_dec / 100.0) ** plazo_dec
             st.success(f"• **Valor Futuro Proyectado:** **{fmt_currency(vf_dec)}**")
             st.info(f"• **Intereses Generados:** **{fmt_currency(vf_dec - monto_dec)}**")
+            mostrar_tabla(tabla_capitalizacion(monto_dec, tasa_dec / 100.0, plazo_dec).rename(columns={"Período": "Mes"}),
+                          "excedente_caja.xlsx", "Capitalización")
         else:
             st.info("Ingresa monto, tasa y plazo mayores a cero.")
 
@@ -296,31 +356,39 @@ elif modulo == "2. Interés Simple y Compuesto":
 
     simple = regimen == "Interés Simple"
     res = None
+    datos_tabla = None
     try:
         if incog == "Valor Futuro (VF)" and vp > 0 and n > 0:
             res = vp * (1 + i * n) if simple else vp * (1 + i) ** n
             st.success(f"**VF = {fmt_currency(res)}** · Intereses: {fmt_currency(res - vp)}")
+            datos_tabla = (vp, i, n)
             st.code("VF = VP·(1 + i·n)" if simple else "VF = VP·(1 + i)^n   |   Excel: =VF(i; n; ; -VP)")
         elif incog == "Valor Presente (VP)" and vf > 0 and n > 0:
             res = vf / (1 + i * n) if simple else vf / (1 + i) ** n
             st.success(f"**VP = {fmt_currency(res)}**")
+            datos_tabla = (res, i, n)
             st.code("VP = VF / (1 + i·n)" if simple else "VP = VF / (1 + i)^n   |   Excel: =VA(i; n; ; -VF)")
         elif incog == "Tasa del período (i)" and vp > 0 and vf > 0 and n > 0:
             if vf <= vp:
                 raise ValueError
             res = (vf / vp - 1) / n if simple else (vf / vp) ** (1 / n) - 1
             st.success(f"**i = {fmt_tasa(res)}** por período")
+            datos_tabla = (vp, res, n)
             st.code("i = (VF/VP − 1) / n" if simple else "i = (VF/VP)^(1/n) − 1   |   Excel: =TASA(n; ; -VP; VF)")
         elif incog == "Plazo (n)" and vp > 0 and vf > 0 and i > 0:
             res = (vf / vp - 1) / i if simple else math.log(vf / vp) / math.log(1 + i)
             if res <= 0:
                 raise ValueError
             st.success(f"**n = {fmt_num(res, 4)} períodos**")
+            datos_tabla = (vp, i, res)
             st.code("n = (VF/VP − 1) / i" if simple else "n = [log(VF) − log(VP)] / log(1 + i)   |   Excel: =NPER(i; ; -VP; VF)")
         else:
             st.info("Completa los tres datos conocidos (mayores a cero).")
     except (ValueError, ZeroDivisionError):
         st.error("Datos inconsistentes (por ejemplo, VF menor o igual que VP al despejar tasa o plazo).")
+    if datos_tabla and datos_tabla[2] <= 600:
+        mostrar_tabla(tabla_capitalizacion(*datos_tabla, simple=simple),
+                      f"interes_{'simple' if simple else 'compuesto'}.xlsx", "Capitalización")
 
     st.markdown("---")
     st.subheader("📈 Comparación gráfica simple vs. compuesto")
@@ -344,6 +412,8 @@ elif modulo == "2. Interés Simple y Compuesto":
         m2.metric("VF Compuesto", fmt_currency(vf_c))
         m3.metric("Diferencia por capitalización", fmt_currency(vf_c - vf_s))
         st.line_chart(df_m2.set_index("Período"))
+        df_m2["Diferencia ($)"] = df_m2["Interés Compuesto ($)"] - df_m2["Interés Simple ($)"]
+        mostrar_tabla(df_m2, "simple_vs_compuesto.xlsx", "Comparación", "Tabla comparativa por período")
 
 # =====================================================================
 # MÓDULO 3
@@ -362,6 +432,11 @@ elif modulo == "3. Conversión de Tasas (TNA/TEA)":
             st.write(f"• Tasa del período de capitalización ({cap.lower()}): **{fmt_tasa(tasa / (12 / PERIODOS[cap]))}**")
         st.metric(f"Tasa efectiva {destino.lower()}", pct(res, 4))
         st.caption(f"Decimal: {res:.6f}".replace(".", ","))
+        df_eq = pd.DataFrame([{"Período": p, "Meses del período": PERIODOS[p],
+                               "Tasa efectiva equivalente (%)": tasa_a_periodo(tasa, tipo, per, cap, p),
+                               "Tasa nominal anual equivalente (%)": tasa_a_periodo(tasa, tipo, per, cap, p) * 12 / PERIODOS[p]}
+                              for p in PERIODOS])
+        mostrar_tabla(df_eq, "tasas_equivalentes.xlsx", "Equivalencias", "Tabla de tasas equivalentes")
 
     st.markdown("---")
     st.subheader("⚖️ Comparador de dos alternativas")
@@ -382,6 +457,12 @@ elif modulo == "3. Conversión de Tasas (TNA/TEA)":
             st.info("Ambas alternativas son equivalentes.")
         else:
             st.success(f"Conviene la **Alternativa {mejor}** · diferencia: {fmt_num(abs(tea_a - tea_b)*100, 4)} puntos porcentuales")
+        df_cmp = pd.DataFrame([
+            {"Alternativa": "A", "Tasa ingresada (%)": ta, "Tipo": tpa, "Período / capitalización": ca,
+             "TEM (%)": tasa_a_periodo(ta, tpa, pa, ca, "Mensual"), "TEA (%)": tea_a},
+            {"Alternativa": "B", "Tasa ingresada (%)": tb, "Tipo": tpb, "Período / capitalización": cb,
+             "TEM (%)": tasa_a_periodo(tb, tpb, pb, cb, "Mensual"), "TEA (%)": tea_b}])
+        mostrar_tabla(df_cmp, "comparacion_tasas.xlsx", "Comparación", "Tabla comparativa")
 
 # =====================================================================
 # MÓDULO 4
@@ -424,13 +505,7 @@ elif modulo == "4. Anualidades y Amortización":
             elif k > n_int:
                 st.warning("k no puede superar el número de cuotas.")
 
-            st.markdown("#### Tabla de desarrollo")
-            disp = df_amort.copy()
-            for col in disp.columns[1:]:
-                disp[col] = disp[col].apply(fmt_currency)
-            st.dataframe(disp, hide_index=True)
-            excel_download(df_amort, "Amortización", "tabla_amortizacion.xlsx",
-                           "📥 Exportar tabla a Excel (.xlsx)")
+            mostrar_tabla(df_amort, "tabla_amortizacion.xlsx", "Amortización", "Tabla de desarrollo (amortización)")
         else:
             st.info("Ingresa monto, número de cuotas y tasa.")
 
@@ -463,6 +538,19 @@ elif modulo == "4. Anualidades y Amortización":
             c1.metric("Valor Presente (t = 0)", fmt_currency(vp_r))
             c2.metric("Valor Futuro (al último pago)" if tipo_a != "Anticipada" else "Valor Futuro (fin del período n)",
                       fmt_currency(vf_r))
+            if tipo_a == "Anticipada":
+                pagos, horizonte = [(t, r_v) for t in range(0, n_v)], n_v
+            elif tipo_a.startswith("Diferida"):
+                pagos, horizonte = [(k_dif + t, r_v) for t in range(1, n_v + 1)], k_dif + n_v
+            else:
+                pagos, horizonte = [(t, r_v) for t in range(1, n_v + 1)], n_v
+            df_an = tabla_flujos(pagos, i_v, horizonte)
+            saldo, saldos = 0.0, []
+            for per_t in range(0, horizonte + 1):
+                saldo = saldo * (1 + i_v) + sum(m for p_, m in pagos if p_ == per_t)
+                saldos.append({"Período": per_t, "Saldo acumulado del fondo ($)": saldo})
+            df_an = df_an.merge(pd.DataFrame(saldos), on="Período", how="left")
+            mostrar_tabla(df_an, "anualidad.xlsx", "Anualidad", "Tabla de desarrollo de la anualidad")
 
 # =====================================================================
 # MÓDULO 5
@@ -507,13 +595,10 @@ elif modulo == "5. Gradientes Financieros":
         if tipo_g.startswith("Geométrico") and i_g > grad:
             st.caption(f"Perpetuidad creciente (si n → ∞): VP = A₁/(i − g) = {fmt_currency(a_base / (i_g - grad))}")
 
-        df_g = pd.DataFrame({"Período": [k_g + t for t in range(1, n_g + 1)], "Flujo ($)": flujos,
-                             "VP del flujo ($)": [f / (1 + i_g) ** (k_g + t) for t, f in enumerate(flujos, 1)]})
+        df_g = tabla_flujos([(k_g + t, f) for t, f in enumerate(flujos, 1)], i_g, k_g + n_g)
+        df_g.insert(2, "Variación vs. anterior ($)", df_g["Flujo ($)"].diff().fillna(0.0))
         st.bar_chart(df_g.set_index("Período")[["Flujo ($)", "VP del flujo ($)"]])
-        disp = df_g.copy()
-        for col in ["Flujo ($)", "VP del flujo ($)"]:
-            disp[col] = disp[col].apply(fmt_currency)
-        st.dataframe(disp, hide_index=True)
+        mostrar_tabla(df_g, "gradiente.xlsx", "Gradiente", "Tabla de desarrollo del gradiente")
     else:
         st.info("Ingresa el primer flujo y el número de flujos.")
 
@@ -559,16 +644,14 @@ elif modulo == "6. Presupuesto y Flujo de Caja":
 
         tot_neto = df_pres["Resultado neto ($)"].sum()
         (st.success if tot_neto >= 0 else st.error)(f"Resultado neto anual: **{fmt_currency(tot_neto)}**")
-        disp = df_pres.copy()
-        for col in disp.columns[1:]:
-            disp[col] = disp[col].apply(fmt_currency)
-        st.dataframe(disp, hide_index=True)
+        df_x = df_pres.astype({"Mes": str})
+        df_x.insert(5, "Margen bruto ($)", df_x["Ventas ($)"] - df_x["Costos variables ($)"])
+        df_x.insert(7, "Impuesto ($)", df_x["Resultado operacional ($)"] - df_x["Resultado neto ($)"])
+        mostrar_tabla(df_x, "presupuesto_12m.xlsx", "Presupuesto", "Presupuesto mensual")
         st.caption("Simplificación: el resultado neto se usa como proxy del flujo de caja "
                    "(no separa depreciación ni desfases de cobro/pago).")
         st.bar_chart(df_pres.set_index("Mes")[["Ventas ($)", "Costos variables ($)", "Gastos fijos ($)"]])
         st.line_chart(df_pres.set_index("Mes")[["Caja acumulada ($)"]])
-        excel_download(df_pres.astype({"Mes": str}), "Presupuesto", "presupuesto_12m.xlsx",
-                       "📥 Exportar presupuesto a Excel (.xlsx)")
     else:
         st.info("Ingresa las ventas del mes 1 para generar el presupuesto.")
 
@@ -616,6 +699,13 @@ elif modulo == "7. Evaluación de Proyectos (VAN/TIR)":
             c2.metric("TIR", "No definida")
         else:
             c2.metric("TIR", pct(tir_val, 2), delta="TIR > TMAR" if tir_val > tmar_dec else "-TIR < TMAR")
+        df_v = tabla_flujos([(0, -inv_ini)] + [(t, f) for t, f in enumerate(flujos, 1)], tmar_dec, n_fl)
+        df_v = df_v.drop(columns=[c for c in df_v.columns if c.startswith("VF del flujo")])
+        df_v["Flujo acumulado ($)"] = df_v["Flujo ($)"].cumsum()
+        mostrar_tabla(df_v, "van_tir.xlsx", "VAN", "Tabla de flujos descontados (VP acumulado = VAN parcial)")
+        rec = df_v[df_v["VP acumulado ($)"] >= 0]
+        if not rec.empty:
+            st.caption(f"Recuperación descontada de la inversión en el período {int(rec['Período'].iloc[0])}.")
         st.caption("Tip: los flujos con gradiente pueden generarse en el Módulo 5.")
 
 # =====================================================================
@@ -666,6 +756,7 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             m2.metric(f"Interés cuota {k_h1}", fmt_currency(f["Interés ($)"]))
             m3.metric(f"Amortización cuota {k_h1}", fmt_currency(f["Amortización ($)"]))
             m4.metric(f"Saldo tras cuota {k_h1}", fmt_currency(f["Saldo Final ($)"]))
+            mostrar_tabla(df, "cuota_k_amortizacion.xlsx", "Amortización", "Tabla de desarrollo (amortización)")
         else:
             st.info("Ingresa los datos del préstamo.")
 
@@ -682,6 +773,10 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
         if vp_h2 > 0 and tasa_h2 > 0 and meses_h2 > 0:
             vf_h2 = vp_h2 * (1 + tasa_h2 / 100.0) ** (meses_h2 / 12.0)
             st.success(f"• **Valor futuro:** **{fmt_currency(vf_h2)}** · intereses {fmt_currency(vf_h2 - vp_h2)}")
+            tem_h2 = (1 + tasa_h2 / 100.0) ** (1 / 12.0) - 1
+            st.caption(f"TEM equivalente: {fmt_tasa(tem_h2)}")
+            mostrar_tabla(tabla_capitalizacion(vp_h2, tem_h2, meses_h2).rename(columns={"Período": "Mes"}),
+                          "vf_compuesto.xlsx", "Capitalización")
 
     # ---------------- III ----------------
     elif h_sel.startswith("III. "):
@@ -699,6 +794,17 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             i_dec = tasa_h3 / 100.0
             vf_h3 = vf_anualidad(r_h3, i_dec, n_h3) * ((1 + i_dec) if "Anticipada" in tipo_h3 else 1)
             st.success(f"• **Valor futuro acumulado:** **{fmt_currency(vf_h3)}** · aportado {fmt_currency(r_h3 * n_h3)}")
+            antic = "Anticipada" in tipo_h3
+            saldo, filas = 0.0, []
+            for t in range(1, n_h3 + 1):
+                ini = saldo + (r_h3 if antic else 0.0)
+                interes = ini * i_dec
+                fin = ini + interes + (0.0 if antic else r_h3)
+                filas.append({"Período": t, "Saldo inicial ($)": saldo, "Aporte ($)": r_h3,
+                              "Interés ganado ($)": interes, "Saldo final ($)": fin,
+                              "Total aportado ($)": r_h3 * t, "Intereses acumulados ($)": fin - r_h3 * t})
+                saldo = fin
+            mostrar_tabla(pd.DataFrame(filas), "fondo_ahorro.xlsx", "Fondo", "Tabla de desarrollo del fondo")
 
     # ---------------- IV ----------------
     elif h_sel.startswith("IV. "):
@@ -718,6 +824,8 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             vp_tot = sum(f / (1 + r_dec) ** (idx + 1) for idx, f in enumerate(flujos_h4))
             st.metric("Valor presente (t = 0)", fmt_currency(vp_tot))
             st.metric(f"Valor futuro (t = {n_cant})", fmt_currency(vp_tot * (1 + r_dec) ** n_cant))
+            mostrar_tabla(tabla_flujos([(t, f) for t, f in enumerate(flujos_h4, 1)], r_dec, n_cant),
+                          "flujos_multiples.xlsx", "Flujos", "Tabla de flujos")
             st.caption("Para flujos en meses no consecutivos usa las herramientas VII (VP) y VIII (VF).")
 
     # ---------------- V ----------------
@@ -738,9 +846,15 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             if tasa_h5 > 0:
                 n_anos = math.log(vf_h5 / vp_h5) / math.log(1 + tasa_h5 / 100.0)
                 st.success(f"• **Plazo requerido:** **{fmt_num(n_anos, 4)} años** ({fmt_num(n_anos * 12, 2)} meses)")
+                if n_anos <= 600:
+                    mostrar_tabla(tabla_capitalizacion(vp_h5, tasa_h5 / 100.0, n_anos).rename(columns={"Período": "Año"}),
+                                  "plazo_requerido.xlsx", "Plazo", "Tabla de crecimiento hasta la meta")
             if plazo_h5 > 0:
                 i_impl = (vf_h5 / vp_h5) ** (1.0 / plazo_h5) - 1.0
                 st.success(f"• **Tasa efectiva anual implícita:** **{fmt_tasa(i_impl)}**")
+                if plazo_h5 <= 600:
+                    mostrar_tabla(tabla_capitalizacion(vp_h5, i_impl, plazo_h5).rename(columns={"Período": "Año"}),
+                                  "tasa_implicita.xlsx", "Tasa", "Tabla de crecimiento con la tasa implícita")
 
     # ---------------- VI ----------------
     elif h_sel.startswith("VI. "):
@@ -754,6 +868,10 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             i_per = tna_h6 / 100.0 / m_h6
             st.write(f"• Tasa del período: **{fmt_tasa(i_per)}**")
             st.metric("TEA", pct(((1 + i_per) ** m_h6 - 1), 4))
+            tea_h6 = (1 + i_per) ** m_h6 - 1
+            df6 = pd.DataFrame([{"Período": p, "Tasa efectiva equivalente (%)": (1 + tea_h6) ** (PERIODOS[p] / 12) - 1}
+                                for p in PERIODOS])
+            mostrar_tabla(df6, "conversion_nominal.xlsx", "Conversión", "Tabla de tasas equivalentes")
 
     # ---------------- VII ----------------
     elif h_sel.startswith("VII. "):
@@ -775,6 +893,10 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             r_dec = tasa_h7 / 100.0
             vp_tot = sum(v / (1 + r_dec) ** m for m, v in pagos if m >= 0)
             st.success(f"• **Valor presente consolidado (t = 0):** **{fmt_currency(vp_tot)}**")
+            validos = sorted([(m, v) for m, v in pagos if m >= 0 and v != 0])
+            if validos:
+                df7 = tabla_flujos(validos, r_dec)
+                mostrar_tabla(df7.rename(columns={"Período": "Mes"}), "vp_pagos.xlsx", "VP", "Tabla de pagos descontados")
 
     # ---------------- VIII ----------------
     elif h_sel.startswith("VIII. "):
@@ -813,10 +935,18 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
                               "Meses capitalizados": N_int - desde + 1, "VF ($)": monto * factor})
             if filas:
                 df8 = pd.DataFrame(filas)
-                disp = df8.copy()
-                for col in ["Monto ($)", "VF ($)"]:
-                    disp[col] = disp[col].apply(fmt_currency)
-                st.dataframe(disp, hide_index=True)
+                df8["Factor de capitalización"] = df8["VF ($)"] / df8["Monto ($)"]
+                df8["Intereses ($)"] = df8["VF ($)"] - df8["Monto ($)"]
+                mostrar_tabla(df8, "vf_depositos.xlsx", "Depósitos", "Tabla de depósitos capitalizados")
+                saldo, evo = 0.0, []
+                for m in range(1, N_int + 1):
+                    dep = deps.get(m, 0.0)
+                    ini = saldo + (0.0 if vencido else dep)
+                    interes = ini * tasas[m - 1]
+                    saldo = ini + interes + (dep if vencido else 0.0)
+                    evo.append({"Mes": m, "Tasa del mes (%)": tasas[m - 1], "Depósito ($)": dep,
+                                "Interés ($)": interes, "Saldo final ($)": saldo})
+                mostrar_tabla(pd.DataFrame(evo), "evolucion_saldo.xlsx", "Evolución", "Evolución mensual del saldo")
                 st.success(f"• **Valor futuro total (t = {N_int}):** **{fmt_currency(df8['VF ($)'].sum())}**")
 
     # ---------------- IX ----------------
@@ -844,21 +974,30 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
                         tasa_anual = tasa * (12 / PERIODOS[per])
                         vf_b = monto_h9 * (1 + tasa_anual * plazo_h9 / 12.0)
                         tea_b = (vf_b / monto_h9) ** (12 / plazo_h9) - 1
+                        tm_simple = tasa_anual / 12.0               # tasa simple mensual proporcional
+                        tem_b = (1 + tea_b) ** (1 / 12.0) - 1       # mensual compuesta equivalente
                     else:
                         tea_b = tasa_a_periodo(tasa, tipo, per, cap, "Anual")
+                        tem_b = tasa_a_periodo(tasa, tipo, per, cap, "Mensual")
+                        tm_simple = None
                         vf_b = monto_h9 * (1 + tea_b) ** (plazo_h9 / 12.0)
                     datos.append({"Banco": b_name.strip() or f"Banco {idx+1}",
                                   "Tasa ofrecida": f"{pct(tasa, 4)} {tipo.split()[0].lower()} ({per.lower() if not tipo.startswith('Nominal') else 'cap. ' + cap.lower()}) · {reg.lower()}",
-                                  "TEA equivalente": pct(tea_b, 4),
+                                  "Tasa mensual simple (%)": tm_simple,
+                                  "TEM equivalente (%)": tem_b,
+                                  "TEA equivalente (%)": tea_b,
                                   "Monto final ($)": vf_b, "Intereses ($)": vf_b - monto_h9})
             if datos:
                 df9 = pd.DataFrame(datos).sort_values("Monto final ($)", ascending=False)
                 mejor = df9["Monto final ($)"].iloc[0]
                 df9["Diferencia vs. mejor"] = ["🥇 Mejor oferta" if mejor - v < 1e-6 else f"-{fmt_currency(mejor - v)}"
                                                for v in df9["Monto final ($)"]]
-                for col in ["Monto final ($)", "Intereses ($)"]:
-                    df9[col] = df9[col].apply(fmt_currency)
-                st.dataframe(df9, hide_index=True)
+                if df9["Tasa mensual simple (%)"].isna().all():
+                    df9 = df9.drop(columns=["Tasa mensual simple (%)"])
+                ganador = df9.iloc[0]
+                st.success(f"🥇 Mejor oferta: **{ganador['Banco']}** · TEM {fmt_tasa(ganador['TEM equivalente (%)'])} · "
+                           f"TEA {pct(ganador['TEA equivalente (%)'], 4)} · monto final {fmt_currency(ganador['Monto final ($)'])}")
+                mostrar_tabla(df9, "comparacion_bancos.xlsx", "Bancos", "Tabla comparativa de bancos")
 
     # ---------------- X ----------------
     elif h_sel.startswith("X. "):
@@ -879,6 +1018,10 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             st.write(f"• Intereses totales con cuota anual: **{fmt_currency(pmt_a * anos - monto_h10)}**")
             st.metric("Cuota mensual equivalente", fmt_currency(pmt_m))
             st.write(f"• Intereses totales con cuota mensual: **{fmt_currency(pmt_m * anos * 12 - monto_h10)}**")
+            mostrar_tabla(tabla_amortizacion(monto_h10, tea, anos)[1], "credito_cuota_anual.xlsx", "Anual",
+                          "Tabla de desarrollo — cuotas anuales")
+            mostrar_tabla(tabla_amortizacion(monto_h10, tem, anos * 12)[1], "credito_cuota_mensual.xlsx", "Mensual",
+                          "Tabla de desarrollo — cuotas mensuales")
 
     # ---------------- XI ----------------
     elif h_sel.startswith("XI. "):
@@ -895,6 +1038,9 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             st.metric("Tasa trimestral implícita", pct(i_t, 4))
             st.metric("TEA implícita", pct(((1 + i_t) ** 4 - 1), 4))
             st.caption(f"Decimal TEA: {(1 + i_t) ** 4 - 1:.6f}".replace(".", ","))
+            if trim <= 600:
+                mostrar_tabla(tabla_capitalizacion(vp_h11, i_t, trim).rename(columns={"Período": "Trimestre"}),
+                              "tasa_implicita_trimestral.xlsx", "Trimestres", "Tabla de crecimiento trimestral")
 
     # ---------------- XII ----------------
     elif h_sel.startswith("XII. "):
@@ -909,6 +1055,9 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
         if vf_h12 > 0 and tea_h12 > 0 and meses_h12 > 0:
             vp_h12 = vf_h12 / (1 + tea_h12 / 100.0) ** (meses_h12 / 12.0)
             st.success(f"• **Valor presente:** **{vp_h12:.4f}** ({fmt_currency(vp_h12)})")
+            tem_h12 = (1 + tea_h12 / 100.0) ** (1 / 12.0) - 1
+            df12 = tabla_capitalizacion(vp_h12, tem_h12, meses_h12).rename(columns={"Período": "Mes"})
+            mostrar_tabla(df12, "vp_pago_unico.xlsx", "Descuento", "Tabla de desarrollo (del VP al VF)")
 
     # ---------------- XIII ----------------
     elif h_sel.startswith("XIII. "):
@@ -924,6 +1073,8 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             pmt = cuota_anualidad(vp_h13, tasa_h13 / 100.0, n_h13)
             st.write(f"• **Cuota exacta:** **{pmt:.4f}**")
             st.success(f"• **Cuota:** **{fmt_currency(pmt)}** · intereses totales {fmt_currency(pmt * n_h13 - vp_h13)}")
+            mostrar_tabla(tabla_amortizacion(vp_h13, tasa_h13 / 100.0, n_h13)[1], "cuota_prestamo.xlsx",
+                          "Amortización", "Tabla de desarrollo (amortización)")
 
     # ---------------- XIV ----------------
     elif h_sel.startswith("XIV. "):
@@ -940,6 +1091,12 @@ elif modulo == "8. Calculadoras Especializadas y Simuladores":
             st.metric("Comisión sobre el crédito", pct(pct_com / 100.0, 2))
             st.metric("CFT", pct((tea_h14 + pct_com) / 100.0, 2))
             st.metric("Costo total en dinero (1 año)", fmt_currency(monto_h14 * tea_h14 / 100.0 + com_h14))
+            df14 = pd.DataFrame([
+                {"Concepto": "Intereses (TEA × monto)", "Tasa (%)": tea_h14 / 100.0, "Monto ($)": monto_h14 * tea_h14 / 100.0},
+                {"Concepto": "Comisión", "Tasa (%)": pct_com / 100.0, "Monto ($)": com_h14},
+                {"Concepto": "Costo financiero total", "Tasa (%)": (tea_h14 + pct_com) / 100.0,
+                 "Monto ($)": monto_h14 * tea_h14 / 100.0 + com_h14}])
+            mostrar_tabla(df14, "cft.xlsx", "CFT", "Desglose del costo financiero total")
             st.caption("Aproximación simplificada (horizonte de 1 año): CFT ≈ TEA + comisión/monto. "
                        "Para créditos en cuotas, el CFT exacto es la TIR de los flujos netos.")
 
