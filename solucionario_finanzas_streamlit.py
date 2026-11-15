@@ -308,6 +308,29 @@ def presupuesto_produccion_compras(productos, meses, pct_ifd_pt, ii_mp, pct_ifd_
     return pd.DataFrame(filas_pt), pd.DataFrame(filas_mp)
 
 
+def clasificar_desviacion(desv, es_ingreso):
+    """Gasto/costo: real > presupuesto = Desfavorable. Ingreso: real > presupuesto = Favorable."""
+    if abs(desv) < 1e-9:
+        return "Neutra"
+    favorable = desv > 0 if es_ingreso else desv < 0
+    return "F" if favorable else "D"
+
+
+def medida_sugerida(clase, es_ingreso):
+    if clase == "D":
+        return ("Revisar política de precios, descuentos y esfuerzo comercial." if es_ingreso else
+                "Investigar causa raíz y aplicar control: renegociar, ajustar consumo o reprogramar.")
+    if clase == "F":
+        return ("Mantener la estrategia comercial y evaluar si la mejora es sostenible." if es_ingreso else
+                "Mantener la práctica de ahorro verificando que no afecte calidad ni plazos.")
+    return "Sin acción: ejecución en línea con el presupuesto."
+
+
+def fila_variacion(nombre, formula, valor, es_ingreso=False):
+    clase = clasificar_desviacion(valor, es_ingreso)
+    return {"Variación": nombre, "Fórmula": formula, "Monto ($)": valor, "F/D": clase}
+
+
 # =====================================================================
 # Encabezado y navegación
 # =====================================================================
@@ -327,6 +350,7 @@ modulo = st.sidebar.radio(
         "7. Evaluación de Proyectos (VAN/TIR)",
         "8. Calculadoras Especializadas y Simuladores",
         "9. Presupuesto de Producción, Compras y Costos",
+        "10. Control Presupuestario y Desviaciones",
     ],
 )
 st.sidebar.markdown("---")
@@ -1290,6 +1314,206 @@ if modulo == "9. Presupuesto de Producción, Compras y Costos":
                           "Efecto del volumen en el costo unitario (economías de escala)")
         else:
             st.info("Ingresa costos por unidad, costos fijos y unidades producidas.")
+
+# =====================================================================
+# MÓDULO 10
+# =====================================================================
+if modulo == "10. Control Presupuestario y Desviaciones":
+    st.header("Control Presupuestario y Análisis de Desviaciones")
+    st.caption("Desviación = Real − Presupuesto · % Desviación = Desviación / Presupuesto. "
+               "En gastos y costos, gastar más de lo presupuestado es Desfavorable (D); en ingresos, vender más es Favorable (F).")
+    t1, t2, t3, t4, t5 = st.tabs(["📋 Desviaciones por partida", "📐 Presupuesto flexible",
+                                  "💵 Ingresos (precio y volumen)", "🧱 Costos directos (MD y MOD)", "🏭 CIF"])
+
+    # ---------- Tab 1: partidas ----------
+    with t1:
+        n_items = int(smart_num_input("Número de partidas (1 a 30):", key="m10_n", is_currency=False))
+        n_items = max(0, min(n_items, 30))
+        if n_items > 0:
+            base = pd.DataFrame({"Concepto": [""] * n_items, "Tipo": ["Gasto / costo"] * n_items,
+                                 "Presupuesto ($)": [0.0] * n_items, "Real ($)": [0.0] * n_items,
+                                 "Medida correctiva (opcional)": [""] * n_items})
+            edit = st.data_editor(
+                base, hide_index=True, num_rows="fixed", key=f"m10_editor_{n_items}",
+                column_config={"Tipo": st.column_config.SelectboxColumn(options=["Gasto / costo", "Ingreso"], required=True)})
+            filas = []
+            for k, r in edit.iterrows():
+                ppto, real = float(r["Presupuesto ($)"] or 0), float(r["Real ($)"] or 0)
+                if ppto == 0 and real == 0:
+                    continue
+                es_ing = r["Tipo"] == "Ingreso"
+                desv = real - ppto
+                clase = clasificar_desviacion(desv, es_ing)
+                medida = str(r["Medida correctiva (opcional)"] or "").strip() or medida_sugerida(clase, es_ing)
+                filas.append({"Concepto": str(r["Concepto"] or f"Partida {k+1}"), "Tipo": r["Tipo"],
+                              "Presupuesto ($)": ppto, "Real ($)": real, "Desviación ($)": desv,
+                              "% Desviación (%)": desv / ppto if ppto else float("nan"),
+                              "F/D": clase, "Medida correctiva": medida})
+            if filas:
+                df_d = pd.DataFrame(filas)
+                gastos = df_d[df_d["Tipo"] != "Ingreso"]
+                m1, m2, m3 = st.columns(3)
+                if not gastos.empty:
+                    tp, tr = gastos["Presupuesto ($)"].sum(), gastos["Real ($)"].sum()
+                    m1.metric("Gasto presupuestado", fmt_currency(tp))
+                    m2.metric("Gasto real", fmt_currency(tr))
+                    m3.metric("Desviación total de gastos", fmt_currency(tr - tp),
+                              delta=(f"{pct((tr - tp) / tp, 2)} " if tp else "") + ("D" if tr > tp else "F"),
+                              delta_color="inverse")
+                mostrar_tabla(df_d, "control_desviaciones.xlsx", "Desviaciones", "Análisis de desviaciones")
+                st.bar_chart(df_d.set_index("Concepto")[["Desviación ($)"]])
+                mayor = df_d.loc[df_d["Desviación ($)"].abs().idxmax()]
+                st.info(f"Mayor desviación absoluta: **{mayor['Concepto']}** ({fmt_currency(mayor['Desviación ($)'])}, "
+                        f"{mayor['F/D']}). Prioriza su análisis de causa raíz.")
+                st.caption("Las medidas sugeridas automáticamente son genéricas; reemplázalas por una acción concreta "
+                           "en la columna 'Medida correctiva (opcional)'.")
+            else:
+                st.info("Ingresa presupuesto y ejecución real de cada partida.")
+        else:
+            st.info("Indica el número de partidas a controlar.")
+
+    # ---------- Tab 2: presupuesto flexible ----------
+    with t2:
+        st.caption("El presupuesto flexible ajusta el estático al nivel real de actividad y separa la variación "
+                   "por volumen (PF − PE) de la variación flexible o de eficiencia (Real − PF).")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            q_pe = smart_num_input("Unidades presupuestadas:", key="m10f_qpe", is_currency=False)
+            q_real = smart_num_input("Unidades reales:", key="m10f_qr", is_currency=False)
+        with c2:
+            p_pe = smart_num_input("Precio unitario presupuestado ($):", key="m10f_p")
+            cvu_pe = smart_num_input("Costo variable unitario presupuestado ($):", key="m10f_cvu")
+            cf_pe = smart_num_input("Costos fijos presupuestados ($):", key="m10f_cf")
+        with c3:
+            ing_r = smart_num_input("Ingresos reales ($):", key="m10f_ir")
+            cv_r = smart_num_input("Costos variables reales ($):", key="m10f_cvr")
+            cf_r = smart_num_input("Costos fijos reales ($):", key="m10f_cfr")
+        if q_pe > 0 and q_real > 0 and p_pe > 0:
+            def bloque(q, p, cvu, cf):
+                return {"Ingresos": q * p, "Costos variables": q * cvu, "Margen de contribución": q * (p - cvu),
+                        "Costos fijos": cf, "Resultado operacional": q * (p - cvu) - cf}
+            pe, pf = bloque(q_pe, p_pe, cvu_pe, cf_pe), bloque(q_real, p_pe, cvu_pe, cf_pe)
+            real = {"Ingresos": ing_r, "Costos variables": cv_r, "Margen de contribución": ing_r - cv_r,
+                    "Costos fijos": cf_r, "Resultado operacional": ing_r - cv_r - cf_r}
+            filas = []
+            for k in pe:
+                es_ing = k not in ("Costos variables", "Costos fijos")
+                v_flex, v_vol = real[k] - pf[k], pf[k] - pe[k]
+                filas.append({"Partida": k, "Real ($)": real[k], "Variación flexible ($)": v_flex,
+                              "F/D flexible": clasificar_desviacion(v_flex, es_ing), "Presupuesto flexible ($)": pf[k],
+                              "Variación por volumen ($)": v_vol, "F/D volumen": clasificar_desviacion(v_vol, es_ing),
+                              "Presupuesto estático ($)": pe[k], "Variación total ($)": real[k] - pe[k],
+                              "F/D total": clasificar_desviacion(real[k] - pe[k], es_ing)})
+            df_f = pd.DataFrame(filas)
+            mostrar_tabla(df_f, "presupuesto_flexible.xlsx", "Flexible", "Real vs. presupuesto flexible vs. estático")
+            st.caption("Unidades: estático " + fmt_num(q_pe) + " · real/flexible " + fmt_num(q_real) +
+                       ". Precio real implícito: " + fmt_currency(ing_r / q_real) +
+                       " · CV unitario real: " + fmt_currency(cv_r / q_real))
+        else:
+            st.info("Ingresa unidades presupuestadas, reales y el precio presupuestado.")
+
+    # ---------- Tab 3: ingresos ----------
+    with t3:
+        st.latex(r"VPV = (P_{real} - P_{ppto})\cdot Q_{real} \qquad VVV = (Q_{real} - Q_{ppto})\cdot P_{ppto}")
+        c1, c2 = st.columns(2)
+        with c1:
+            p_r = smart_num_input("Precio real ($):", key="m10i_pr")
+            p_p = smart_num_input("Precio presupuestado ($):", key="m10i_pp")
+        with c2:
+            q_r = smart_num_input("Volumen real vendido:", key="m10i_qr", is_currency=False)
+            q_p = smart_num_input("Volumen presupuestado:", key="m10i_qp", is_currency=False)
+        if p_p > 0 and q_p > 0 and (p_r > 0 or q_r > 0):
+            vpv, vvv = (p_r - p_p) * q_r, (q_r - q_p) * p_p
+            df_i = pd.DataFrame([
+                fila_variacion("Variación en precio de venta (VPV)", "(P real − P ppto) · Q real", vpv, True),
+                fila_variacion("Variación en volumen de venta (VVV)", "(Q real − Q ppto) · P ppto", vvv, True),
+                fila_variacion("Variación total de ingresos", "Ingreso real − Ingreso presupuestado", vpv + vvv, True)])
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Ingreso presupuestado", fmt_currency(p_p * q_p))
+            m2.metric("Ingreso real", fmt_currency(p_r * q_r))
+            m3.metric("Variación total", fmt_currency(vpv + vvv))
+            mostrar_tabla(df_i, "variaciones_ingresos.xlsx", "Ingresos", "Descomposición de la variación de ingresos")
+            st.caption("Causas típicas — precio: política de precios, descuentos, mezcla de productos. "
+                       "Volumen: condiciones de mercado, calidad, publicidad.")
+        else:
+            st.info("Ingresa precios y volúmenes real y presupuestado.")
+
+    # ---------- Tab 4: costos directos ----------
+    with t4:
+        st.caption("Costeo estándar: cada variación se separa en precio/tarifa (responsable típico: Compras o RR.HH.) "
+                   "y eficiencia/uso (responsable típico: Producción/Operaciones). Valor positivo = D.")
+        st.markdown("**Materiales directos (MD)**")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            md_pr = smart_num_input("Precio real por unidad de MD ($):", key="m10md_pr")
+        with c2:
+            md_ps = smart_num_input("Precio estándar ($):", key="m10md_ps")
+        with c3:
+            md_qr = smart_num_input("Cantidad real comprada/usada:", key="m10md_qr", is_currency=False)
+        with c4:
+            md_qs = smart_num_input("Cantidad estándar permitida:", key="m10md_qs", is_currency=False)
+        st.markdown("**Mano de obra directa (MOD)**")
+        c5, c6, c7, c8 = st.columns(4)
+        with c5:
+            mo_tr = smart_num_input("Tasa salarial real ($/h):", key="m10mo_tr")
+        with c6:
+            mo_ts = smart_num_input("Tasa salarial estándar ($/h):", key="m10mo_ts")
+        with c7:
+            mo_hr = smart_num_input("Horas reales trabajadas:", key="m10mo_hr", is_currency=False)
+        with c8:
+            mo_hs = smart_num_input("Horas estándar permitidas:", key="m10mo_hs", is_currency=False)
+        filas = []
+        if md_ps > 0 and (md_qr > 0 or md_qs > 0):
+            vp_md, ve_md = (md_pr - md_ps) * md_qr, (md_qr - md_qs) * md_ps
+            filas += [fila_variacion("MD · Variación en precio (Compras)", "(P real − P estándar) · Q real", vp_md),
+                      fila_variacion("MD · Variación en eficiencia/uso (Producción)", "(Q real − Q estándar) · P estándar", ve_md),
+                      fila_variacion("MD · Variación total", "Costo real − Costo estándar", vp_md + ve_md)]
+        if mo_ts > 0 and (mo_hr > 0 or mo_hs > 0):
+            vp_mo, ve_mo = (mo_tr - mo_ts) * mo_hr, (mo_hr - mo_hs) * mo_ts
+            filas += [fila_variacion("MOD · Variación en tarifa (RR.HH.)", "(Tasa real − Tasa estándar) · Horas reales", vp_mo),
+                      fila_variacion("MOD · Variación en eficiencia (Operaciones)", "(Horas reales − Horas estándar) · Tasa estándar", ve_mo),
+                      fila_variacion("MOD · Variación total", "Costo real − Costo estándar", vp_mo + ve_mo)]
+        if filas:
+            mostrar_tabla(pd.DataFrame(filas), "variaciones_costos_directos.xlsx", "Costos directos",
+                          "Variaciones de costos directos")
+            st.caption("Medidas — corto plazo: revisar especificaciones de compra (precio D), reprogramar turnos "
+                       "(eficiencia MOD D). Largo plazo: reingeniería de procesos (eficiencia crónica), cambio de "
+                       "proveedor o cobertura financiera (precio volátil).")
+        else:
+            st.info("Ingresa los datos estándar y reales de materiales y/o mano de obra.")
+
+    # ---------- Tab 5: CIF ----------
+    with t5:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**CIF variable**")
+            cifv_r = smart_num_input("CIF variable real ($):", key="m10c_cifvr")
+            cifv_f = smart_num_input("CIF variable flexible ($):", key="m10c_cifvf")
+            st.markdown("**CIF fijo — gasto**")
+            ciff_r = smart_num_input("CIF fijo real ($):", key="m10c_ciffr")
+            ciff_p = smart_num_input("CIF fijo presupuestado ($):", key="m10c_ciffp")
+        with c2:
+            st.markdown("**CIF fijo — volumen/capacidad**")
+            h_est = smart_num_input("Horas estándar (producción real):", key="m10c_hest", is_currency=False)
+            h_pre = smart_num_input("Horas presupuestadas:", key="m10c_hpre", is_currency=False)
+            tasa_f = smart_num_input("Tasa fija estándar ($/h):", key="m10c_tasa")
+        filas = []
+        if cifv_r > 0 or cifv_f > 0:
+            filas.append(fila_variacion("CIF variable · Variación en gasto", "CIFV real − CIFV flexible", cifv_r - cifv_f))
+        if ciff_r > 0 or ciff_p > 0:
+            filas.append(fila_variacion("CIF fijo · Variación en gasto/presupuestal", "CIFF real − CIFF presupuestado",
+                                        ciff_r - ciff_p))
+        if tasa_f > 0 and (h_est > 0 or h_pre > 0):
+            v_vol = (h_est - h_pre) * tasa_f
+            filas.append({"Variación": "CIF fijo · Variación en volumen/capacidad",
+                          "Fórmula": "(Horas estándar − Horas presupuestadas) · Tasa fija estándar", "Monto ($)": v_vol,
+                          "F/D": "Neutra" if abs(v_vol) < 1e-9 else ("F (sobreaplicación)" if v_vol > 0 else "D (subaplicación)")})
+        if filas:
+            mostrar_tabla(pd.DataFrame(filas), "variaciones_cif.xlsx", "CIF", "Variaciones de costos indirectos de fabricación")
+            st.caption("La variación de volumen es la más sensible: producir bajo lo presupuestado deja CIF fijos "
+                       "sin absorber y eleva el costo unitario.")
+        else:
+            st.info("Ingresa los datos de CIF variable y/o fijo.")
 
 st.markdown("---")
 st.caption("Plataforma de Simulación e Ingeniería Financiera")
