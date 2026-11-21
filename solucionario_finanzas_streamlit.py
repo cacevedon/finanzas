@@ -1332,6 +1332,7 @@ if modulo == "10. Control Presupuestario y Desviaciones":
         if n_items > 0:
             base = pd.DataFrame({"Concepto": [""] * n_items, "Tipo": ["Gasto / costo"] * n_items,
                                  "Presupuesto ($)": [0.0] * n_items, "Real ($)": [0.0] * n_items,
+                                 "Causa técnica probable (opcional)": [""] * n_items,
                                  "Medida correctiva (opcional)": [""] * n_items})
             edit = st.data_editor(
                 base, hide_index=True, num_rows="fixed", key=f"m10_editor_{n_items}",
@@ -1348,7 +1349,10 @@ if modulo == "10. Control Presupuestario y Desviaciones":
                 filas.append({"Concepto": str(r["Concepto"] or f"Partida {k+1}"), "Tipo": r["Tipo"],
                               "Presupuesto ($)": ppto, "Real ($)": real, "Desviación ($)": desv,
                               "% Desviación (%)": desv / ppto if ppto else float("nan"),
-                              "F/D": clase, "Medida correctiva": medida})
+                              "F/D": clase,
+                              "Causa técnica probable": str(r["Causa técnica probable (opcional)"] or "").strip()
+                              or ("—" if clase == "Neutra" else "Por diagnosticar: precio, cantidad/eficiencia o volumen"),
+                              "Medida correctiva": medida})
             if filas:
                 df_d = pd.DataFrame(filas)
                 gastos = df_d[df_d["Tipo"] != "Ingreso"]
@@ -1360,7 +1364,21 @@ if modulo == "10. Control Presupuestario y Desviaciones":
                     m3.metric("Desviación total de gastos", fmt_currency(tr - tp),
                               delta=(f"{pct((tr - tp) / tp, 2)} " if tp else "") + ("D" if tr > tp else "F"),
                               delta_color="inverse")
-                mostrar_tabla(df_d, "control_desviaciones.xlsx", "Desviaciones", "Análisis de desviaciones")
+                tp_all, tr_all = df_d["Presupuesto ($)"].sum(), df_d["Real ($)"].sum()
+                if gastos.shape[0] == df_d.shape[0]:
+                    total = {"Concepto": "TOTAL", "Tipo": "", "Presupuesto ($)": tp_all, "Real ($)": tr_all,
+                             "Desviación ($)": tr_all - tp_all,
+                             "% Desviación (%)": (tr_all - tp_all) / tp_all if tp_all else float("nan"),
+                             "F/D": clasificar_desviacion(tr_all - tp_all, False), "Causa técnica probable": "",
+                             "Medida correctiva": ""}
+                    df_out = pd.concat([df_d, pd.DataFrame([total])], ignore_index=True)
+                else:
+                    df_out = df_d
+                mostrar_tabla(df_out, "control_desviaciones.xlsx", "Desviaciones", "Tabla analítica de desviaciones")
+                n_d = int((df_d["F/D"] == "D").sum())
+                st.write(f"• Partidas desfavorables: **{n_d}** de {len(df_d)} · "
+                         f"desviaciones D suman **{fmt_currency(df_d.loc[df_d['F/D'] == 'D', 'Desviación ($)'].sum())}**, "
+                         f"F suman **{fmt_currency(df_d.loc[df_d['F/D'] == 'F', 'Desviación ($)'].sum())}**")
                 st.bar_chart(df_d.set_index("Concepto")[["Desviación ($)"]])
                 mayor = df_d.loc[df_d["Desviación ($)"].abs().idxmax()]
                 st.info(f"Mayor desviación absoluta: **{mayor['Concepto']}** ({fmt_currency(mayor['Desviación ($)'])}, "
